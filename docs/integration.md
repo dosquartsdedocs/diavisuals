@@ -30,11 +30,11 @@ Usa `copy` nomes si el projecte no accepta symlinks.
 
 ## Helper comu
 
-Per Mermaid:
+Per Mermaid, normalment passant la familia:
 
 ```bash
 resources/diavisuals/tools/style-diagram-source.sh \
-  mermaid benizar-mermaid \
+  mermaid benizar \
   assets/diagrams/pipeline.mmd \
   .cache/diagrams/pipeline.styled.mmd
 
@@ -48,14 +48,14 @@ Per PlantUML:
 
 ```bash
 resources/diavisuals/tools/style-diagram-source.sh \
-  plantuml benizar-plantuml \
+  plantuml benizar \
   figures/architecture.puml \
   .cache/diagrams/architecture.styled.puml
 
 plantuml -tsvg .cache/diagrams/architecture.styled.puml
 ```
 
-El helper detecta el tipus de diagrama i aplica l'override corresponent quan existeix.
+El helper resol la familia (`benizar`) al nom intern de motor (`benizar-mermaid` o `benizar-plantuml`), detecta el tipus de diagrama i aplica l'override corresponent quan existeix.
 
 ## my-slides-vault
 
@@ -89,8 +89,8 @@ figures/                      # fonts SVG, Mermaid, PlantUML del paper
 Canvi recomanat en `unaltrepaper/scripts/build-figures.sh`:
 
 - Acceptar `DIAVISUALS_DIR`, per defecte `/workspace/resources/diavisuals` si existeix.
-- Acceptar `MERMAID_STYLE`, per defecte `benizar-mermaid`.
-- Acceptar `PLANTUML_STYLE`, per defecte `benizar-plantuml`.
+- Acceptar `DIAGRAM_STYLE_FAMILY`, per defecte `benizar`.
+- Acceptar `MERMAID_STYLE` i `PLANTUML_STYLE` com a overrides opcionals per motor.
 - Abans de `mmdc`, generar un `.cache/*.styled.mmd` amb `style-diagram-source.sh` i usar el JSON del preset amb `--configFile`.
 - Abans de `plantuml`, generar un `.cache/*.styled.puml` amb el mateix helper.
 

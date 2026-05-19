@@ -17,7 +17,7 @@ if [[ ${1:-} == "-h" || ${1:-} == "--help" ]]; then
 fi
 
 engine=${1:?engine is required}
-style_name=${2:?style name is required}
+style_name=${2:?style family or style name is required}
 input=${3:?input path is required}
 output=${4:?output path is required}
 
@@ -90,6 +90,7 @@ plantuml_type() {
 
 case "$engine" in
   mermaid)
+    style_name=$("$repo_root/tools/resolve-style-name.sh" mermaid "$style_name")
     type_key=$(mermaid_type "$input")
     type_style="$repo_root/styles/mermaid/$style_name/$type_key.mmd"
     if [[ -f $type_style ]]; then
@@ -99,6 +100,7 @@ case "$engine" in
     fi
     ;;
   plantuml)
+    style_name=$("$repo_root/tools/resolve-style-name.sh" plantuml "$style_name")
     base_style="$repo_root/styles/plantuml/$style_name.puml"
     type_key=$(plantuml_type "$input")
     type_style="$repo_root/styles/plantuml/$style_name/$type_key.puml"

@@ -2,7 +2,7 @@
 
 `diavisuals` centralitza els estils visuals de diagrames de dosquartsdedocs. La idea es deixar de copiar petits ajustos de Mermaid i PlantUML dins de cada projecte i tenir un contracte compartit per a diapositives, papers, webs i documentacio tecnica.
 
-El primer estil complet es `benizar`, basat en el treball existent de `my-slides-vault`.
+El primer estil complet es `benizar`, basat en el treball existent de `my-slides-vault`. El repo esta preparat per a mes families, com `tonidomo` o `urv`, seguint la convencio `<familia>-mermaid` i `<familia>-plantuml`.
 
 ## Que hi ha
 
@@ -64,7 +64,7 @@ resources/diavisuals/tools/style-diagram-source.sh \
 plantuml -tpdf .cache/figures/architecture.styled.puml
 ```
 
-Consulta `docs/integration.md` per a la decisio d'us en `unaltrepaper`, `unaltraweb` i `my-slides-vault`.
+Consulta `docs/integration.md` per a la decisio d'us en `unaltrepaper`, `unaltraweb` i `my-slides-vault`, i `docs/style-families.md` per al contracte de families (`benizar`, `urv`, `tonidomo`, etc.).
 
 ## Compatibilitat
 

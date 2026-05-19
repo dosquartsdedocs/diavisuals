@@ -20,6 +20,8 @@ require_file styles/mermaid/benizar-mermaid.json
 require_file styles/plantuml/benizar-plantuml.puml
 require_file tokens/benizar.yml
 require_file tools/style-diagram-source.sh
+require_file tools/list-style-families.sh
+require_file tools/resolve-style-name.sh
 
 for type in "${mermaid_types[@]}"; do
   require_file "styles/mermaid/benizar-mermaid/${type}.mmd"
@@ -32,10 +34,13 @@ for type in "${plantuml_types[@]}"; do
 done
 
 python3 -m json.tool styles/mermaid/benizar-mermaid.json >/dev/null
-bash -n tools/check-style-files.sh tools/install-to-project.sh tools/render-examples.sh tools/style-diagram-source.sh
+bash -n tools/check-style-files.sh tools/install-to-project.sh tools/render-examples.sh tools/style-diagram-source.sh tools/list-style-families.sh tools/resolve-style-name.sh
 
 if [[ $fail -ne 0 ]]; then
   exit 1
 fi
 
+if [[ $(tools/resolve-style-name.sh mermaid benizar) != 'benizar-mermaid' ]]; then exit 1; fi
+if [[ $(tools/resolve-style-name.sh plantuml benizar) != 'benizar-plantuml' ]]; then exit 1; fi
+if ! tools/list-style-families.sh | grep -qx 'benizar'; then exit 1; fi
 printf 'diavisuals check ok\n'
