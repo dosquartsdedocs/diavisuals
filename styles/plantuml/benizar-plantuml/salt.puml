@@ -1,0 +1,2 @@
+' Salt-specific style placeholder for benizar preset.
+' Some consumers skip style injection for @startsalt because PlantUML support varies.

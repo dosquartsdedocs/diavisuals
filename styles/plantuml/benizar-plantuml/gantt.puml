@@ -1,0 +1,2 @@
+' Gantt-specific style placeholder for benizar preset.
+' Some consumers skip style injection for @startgantt because PlantUML support varies.

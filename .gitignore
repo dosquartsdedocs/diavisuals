@@ -1,0 +1,10 @@
+.cache/
+dist/
+*.aux
+*.log
+*.out
+*.toc
+*.pdf
+*.png
+*.svg
+.DS_Store

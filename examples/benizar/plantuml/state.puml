@@ -1,0 +1,6 @@
+@startuml
+[*] --> Draft
+Draft --> Styled : apply preset
+Styled --> Checked : make check
+Checked --> [*]
+@enduml

@@ -1,0 +1,10 @@
+classDiagram
+  class StyleFamily {
+    +string name
+    +tokens()
+  }
+  class EnginePreset {
+    +mermaidJson
+    +plantumlSnippet
+  }
+  StyleFamily --> EnginePreset

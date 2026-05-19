@@ -1,0 +1,11 @@
+@startuml
+class StyleFamily {
+  +name
+  +tokens
+}
+class EnginePreset {
+  +baseStyle
+  +typeOverride
+}
+StyleFamily "1" --> "2" EnginePreset
+@enduml

@@ -1,0 +1,8 @@
+sequenceDiagram
+  actor A as Author
+  participant T as Template
+  participant D as diavisuals
+  A->>T: build document
+  T->>D: load style preset
+  D-->>T: base + type override
+  T-->>A: styled diagram

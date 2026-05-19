@@ -1,0 +1,9 @@
+@startuml
+node "Project repo" as Project {
+  artifact "document.md"
+}
+node "Shared resources" as Resources {
+  artifact "diavisuals"
+}
+Project --> Resources : style lookup
+@enduml

@@ -1,0 +1,9 @@
+@startuml
+actor Author
+rectangle "Documentation project" {
+  usecase "Select style" as Select
+  usecase "Render diagram" as Render
+}
+Author --> Select
+Select --> Render
+@enduml

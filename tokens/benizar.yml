@@ -1,0 +1,40 @@
+---
+family: benizar
+status: active
+origin: my-slides-vault/res/styles
+fonts:
+  sans: Latin Modern Sans, DejaVu Sans, Arial, sans-serif
+  size_mermaid: 18px
+  size_plantuml: 16
+colors:
+  ink: "#0F223A"
+  blue_900: "#072A4F"
+  blue_800: "#0B3A6E"
+  blue_700: "#1D4E89"
+  blue_600: "#2A5DB0"
+  blue_300: "#6F9DCE"
+  blue_100: "#DCEAF8"
+  blue_050: "#EAF3FF"
+  paper: "#F5FAFF"
+  panel: "#F2F7FD"
+  note: "#F6FAFF"
+semantic:
+  background: transparent
+  text: ink
+  line: blue_600
+  node_fill: blue_100
+  node_fill_soft: blue_050
+  cluster_fill: panel
+  note_fill: note
+series:
+  green: { fill: "#D8EFE8", stroke: "#1B9E77", text: "#1F6A37" }
+  orange: { fill: "#FBE6D6", stroke: "#D95F02", text: "#8A4B1F" }
+  purple: { fill: "#E5E2F3", stroke: "#7570B3", text: "#4F4A87" }
+  rose: { fill: "#FADFEB", stroke: "#E7298A", text: "#7C2A46" }
+  olive: { fill: "#E5F1D8", stroke: "#66A61E", text: "#4F6A20" }
+  gold: { fill: "#FAEFD2", stroke: "#E6AB02", text: "#6F5E1A" }
+quadrants:
+  q1: { fill: "#FBE9DD", text: "#8A4B1F" }
+  q2: { fill: "#F7F3D9", text: "#6F5E1A" }
+  q3: { fill: "#F9E2E6", text: "#7C2A46" }
+  q4: { fill: "#E1F2E5", text: "#1F6A37" }

@@ -1,0 +1,6 @@
+@startjson
+{
+  "family": "benizar",
+  "engines": ["mermaid", "plantuml"]
+}
+@endjson

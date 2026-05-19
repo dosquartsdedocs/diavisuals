@@ -1,0 +1,2 @@
+' Deployment-specific style overrides for benizar preset.
+skinparam ComponentStyle rectangle

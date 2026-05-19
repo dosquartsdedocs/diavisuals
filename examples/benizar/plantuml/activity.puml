@@ -1,0 +1,12 @@
+@startuml
+start
+:Choose diagram type;
+:Load base preset;
+if (Type override exists?) then (yes)
+  :Append override;
+else (no)
+  :Use base only;
+endif
+:Render diagram;
+stop
+@enduml

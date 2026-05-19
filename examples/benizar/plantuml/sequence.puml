@@ -1,0 +1,9 @@
+@startuml
+actor Author
+participant Template
+participant "diavisuals" as DV
+Author -> Template : build
+Template -> DV : load benizar preset
+DV --> Template : base + type override
+Template --> Author : rendered diagram
+@enduml

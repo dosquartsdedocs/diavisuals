@@ -1,0 +1,3 @@
+' Files/tree-specific style overrides for benizar preset.
+skinparam FolderBackgroundColor #EEF5FF
+skinparam FolderBorderColor #2A5DB0

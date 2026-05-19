@@ -1,0 +1,9 @@
+flowchart LR
+  A[Author] --> B[Pandoc]
+  B --> C{Output}
+  C --> D[PDF]
+  C --> E[HTML]
+  subgraph Resources
+    S[diavisuals]
+  end
+  S --> B

@@ -1,0 +1,10 @@
+@startsalt
+{
+  {T
+    + diavisuals
+    ++ benizar
+    +++ mermaid
+    +++ plantuml
+  }
+}
+@endsalt

@@ -1,0 +1,134 @@
+' Benizar visual preset for PlantUML diagrams
+'
+' Prefer modern CSS-like styling on recent PlantUML versions.
+' Keep skinparam fallback for legacy engines (1.2020.x).
+!if %version() >= "1.2021.0"
+<style>
+root {
+  BackGroundColor transparent
+  FontName "Latin Modern Sans"
+  FontSize 16
+  FontColor #0F223A
+}
+
+arrow {
+  LineColor #2A5DB0
+  FontColor #0F223A
+}
+
+element {
+  BackGroundColor #EEF5FF
+  LineColor #2A5DB0
+  FontColor #0F223A
+}
+
+note {
+  BackGroundColor #F6FAFF
+  LineColor #6F9DCE
+  FontColor #0F223A
+}
+</style>
+!else
+skinparam BackgroundColor transparent
+skinparam Shadowing false
+skinparam DefaultFontName "Latin Modern Sans"
+skinparam DefaultFontSize 16
+skinparam DefaultFontColor #0F223A
+skinparam ArrowColor #2A5DB0
+
+skinparam ActorStyle awesome
+skinparam ActorBackgroundColor #ECF4FF
+skinparam ActorBorderColor #2A5DB0
+skinparam ActorFontColor #0F223A
+
+skinparam actor {
+  BackgroundColor #ECF4FF
+  BorderColor #2A5DB0
+  FontColor #0F223A
+}
+
+skinparam rectangle {
+  BackgroundColor #EEF5FF
+  BorderColor #2A5DB0
+  FontColor #0F223A
+}
+
+skinparam component {
+  BackgroundColor #EEF5FF
+  BorderColor #2A5DB0
+  FontColor #0F223A
+}
+
+skinparam PackageBackgroundColor #EEF5FF
+skinparam PackageBorderColor #2A5DB0
+skinparam PackageFontColor #0F223A
+
+skinparam ClassBackgroundColor #EEF5FF
+skinparam ClassBorderColor #2A5DB0
+skinparam ClassFontColor #0F223A
+
+skinparam ObjectBackgroundColor #EEF5FF
+skinparam ObjectBorderColor #2A5DB0
+skinparam ObjectFontColor #0F223A
+
+skinparam StateBackgroundColor #ECF4FF
+skinparam StateBorderColor #2A5DB0
+skinparam StateFontColor #0F223A
+
+skinparam UsecaseBackgroundColor #ECF4FF
+skinparam UsecaseBorderColor #2A5DB0
+skinparam UsecaseFontColor #0F223A
+
+skinparam NodeBackgroundColor #EEF5FF
+skinparam NodeBorderColor #2A5DB0
+skinparam NodeFontColor #0F223A
+
+skinparam FolderBackgroundColor #EEF5FF
+skinparam FolderBorderColor #2A5DB0
+skinparam FolderFontColor #0F223A
+
+skinparam ArtifactBackgroundColor #EEF5FF
+skinparam ArtifactBorderColor #2A5DB0
+skinparam ArtifactFontColor #0F223A
+
+skinparam DatabaseBackgroundColor #EEF5FF
+skinparam DatabaseBorderColor #2A5DB0
+skinparam DatabaseFontColor #0F223A
+
+skinparam NoteBackgroundColor #F6FAFF
+skinparam NoteBorderColor #6F9DCE
+skinparam NoteFontColor #0F223A
+
+skinparam SequenceArrowColor #2A5DB0
+skinparam SequenceLifeLineBorderColor #6F9DCE
+skinparam SequenceLifeLineBackgroundColor #EEF5FF
+skinparam SequenceParticipantBorderColor #2A5DB0
+skinparam SequenceParticipantBackgroundColor #ECF4FF
+skinparam SequenceBoxBorderColor #6F9DCE
+skinparam SequenceBoxBackgroundColor #F2F7FD
+
+skinparam ActivityBorderColor #2A5DB0
+skinparam ActivityBackgroundColor #ECF4FF
+skinparam ActivityFontColor #0F223A
+skinparam ActivityDiamondBackgroundColor #ECF4FF
+skinparam ActivityDiamondBorderColor #2A5DB0
+skinparam ActivityDiamondFontColor #0F223A
+skinparam ActivityBarColor #2A5DB0
+skinparam PartitionBackgroundColor #F2F7FD
+skinparam PartitionBorderColor #6F9DCE
+skinparam PartitionFontColor #0F223A
+
+skinparam WbsBackgroundColor #EEF5FF
+skinparam WbsBorderColor #2A5DB0
+skinparam WbsFontColor #0F223A
+skinparam WBSBackgroundColor #EEF5FF
+skinparam WBSBorderColor #2A5DB0
+skinparam WBSFontColor #0F223A
+
+skinparam MindMapBackgroundColor #EEF5FF
+skinparam MindMapBorderColor #2A5DB0
+skinparam MindMapFontColor #0F223A
+skinparam MindmapBackgroundColor #EEF5FF
+skinparam MindmapBorderColor #2A5DB0
+skinparam MindmapFontColor #0F223A
+!endif

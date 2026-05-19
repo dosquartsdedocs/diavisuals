@@ -1,0 +1,8 @@
+@startwbs
+* diavisuals
+** style contract
+** benizar preset
+*** Mermaid
+*** PlantUML
+** consumers
+@endwbs

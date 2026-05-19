@@ -1,0 +1,7 @@
+@startuml
+component "Document project" as Doc
+component "Render filter" as Filter
+component "diavisuals" as DV
+Doc --> Filter
+Filter --> DV : style assets
+@enduml
