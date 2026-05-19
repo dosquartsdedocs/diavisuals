@@ -19,6 +19,7 @@ require_file() {
 require_file styles/mermaid/benizar-mermaid.json
 require_file styles/plantuml/benizar-plantuml.puml
 require_file tokens/benizar.yml
+require_file tools/style-diagram-source.sh
 
 for type in "${mermaid_types[@]}"; do
   require_file "styles/mermaid/benizar-mermaid/${type}.mmd"
@@ -31,6 +32,7 @@ for type in "${plantuml_types[@]}"; do
 done
 
 python3 -m json.tool styles/mermaid/benizar-mermaid.json >/dev/null
+bash -n tools/check-style-files.sh tools/install-to-project.sh tools/render-examples.sh tools/style-diagram-source.sh
 
 if [[ $fail -ne 0 ]]; then
   exit 1

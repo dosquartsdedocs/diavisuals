@@ -30,40 +30,50 @@ Aquesta separacio es important: un diagrama de quadrants no necessita la mateixa
 
 ## Us rapid
 
-En un projecte que ja use els filtres de `my-slides-vault` o un contracte compatible:
+En un projecte consumidor:
 
 ```bash
-git submodule add <url-del-repo-diavisuals> resources/diavisuals
-./resources/diavisuals/tools/install-to-project.sh . link
+git submodule add git@github.com:dosquartsdedocs/diavisuals.git resources/diavisuals
 ```
 
-Despres, en metadades:
+Per preparar una font Mermaid estilitzada:
 
-```yaml
-diagram_styles:
-  mermaid: benizar-mermaid
-  plantuml: benizar-plantuml
+```bash
+resources/diavisuals/tools/style-diagram-source.sh \
+  mermaid benizar-mermaid \
+  figures/pipeline.mmd \
+  .cache/figures/pipeline.styled.mmd
 ```
 
-I en un diagrama concret:
+I per renderitzar-la:
 
-```markdown
-![Pipeline](mermaid/pipeline.mmd){width=90% diagram_style=benizar-mermaid}
-![Pipeline UML](plantuml/pipeline.puml){width=90% diagram_style=benizar-plantuml}
+```bash
+mmdc \
+  -i .cache/figures/pipeline.styled.mmd \
+  -o figures/pipeline.pdf \
+  -c resources/diavisuals/styles/mermaid/benizar-mermaid.json
 ```
 
-`diagram_style` es l'alias compartit. Tambe funcionen `mermaid_style` i `plantuml_style` en els filtres que venen de `my-slides-vault`.
+Per PlantUML:
+
+```bash
+resources/diavisuals/tools/style-diagram-source.sh \
+  plantuml benizar-plantuml \
+  figures/architecture.puml \
+  .cache/figures/architecture.styled.puml
+plantuml -tpdf .cache/figures/architecture.styled.puml
+```
+
+Consulta `docs/integration.md` per a la decisio d'us en `unaltrepaper`, `unaltraweb` i `my-slides-vault`.
 
 ## Compatibilitat
 
 Aquest repo no renderitza documents sencers. Nomes proveeix assets d'estil, exemples i comprovacions. Els consumidors son els projectes que tenen els filtres o plantilles:
 
-- `my-slides-vault`: consumeix `res/styles/mermaid` i `res/styles/plantuml`.
-- `unaltrepaper`: hauria de consumir aquests assets des de la plantilla o els seus recursos compartits.
-- `unaltrepaperalpap`: paper de demo; hauria de demostrar l'us, no ser el lloc on viuen els estils.
-- `unaltraweb`: pot passar el JSON a `mmdc` i incloure snippets PlantUML en el seu pipeline.
-
-Consulta `docs/integration.md` per a detalls.
+- `my-slides-vault`: diapositives i filtres Lua.
+- `unaltrepaper`: papers, submissio, revisions i latexdiff.
+- `unaltrepaperalpap`: paper de demo.
+- `unaltraweb`: manuals i webs que poden prerenderitzar `.mmd` a `.svg`.
 
 ## Comprovacions
 

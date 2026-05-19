@@ -1,32 +1,65 @@
 # Integracio amb projectes
 
-## Recomanacio
+`diavisuals` no es un motor de build. Es un paquet d'estils i una eina petita per preparar fonts de diagrama. Cada consumidor conserva el seu pipeline i decideix quan cridar `mmdc`, `plantuml`, Jekyll, Pandoc o LaTeX.
 
-Afegir `diavisuals` com a submodul o subtree i exposar els assets al lloc on el projecte ja busca estils.
+## Decisio d'arquitectura
+
+- `diavisuals` publica tokens, presets, overrides per tipus i exemples.
+- `diavisuals` pot transformar una font `.mmd` o `.puml` en una font estilitzada amb `tools/style-diagram-source.sh`.
+- `unaltrepaper`, `unaltraweb`, `my-slides-vault` i altres projectes renderitzen amb les seues eines pròpies.
+- Els repos de documentacio no haurien de copiar fragments CSS o `skinparam` locals si el preset ja viu aci.
+
+Aixo evita que `diavisuals` acabe sabent massa de LaTeX, Jekyll o Beamer, i manté un contracte simple: estil compartit, build local.
+
+## Instal.lacio recomanada
+
+Per a projectes de dosquartsdedocs, usa submodul:
 
 ```bash
-git submodule add <url-del-repo-diavisuals> resources/diavisuals
+git submodule add git@github.com:dosquartsdedocs/diavisuals.git resources/diavisuals
+git submodule update --init --recursive
+```
+
+Si el projecte ja espera `res/styles/mermaid` i `res/styles/plantuml`, pots exposar els assets amb:
+
+```bash
 ./resources/diavisuals/tools/install-to-project.sh . link
 ```
 
-El mode `link` crea enllacos simbolics cap a:
+Usa `copy` nomes si el projecte no accepta symlinks.
 
-```text
-res/styles/mermaid/benizar-mermaid.json
-res/styles/mermaid/benizar-mermaid/
-res/styles/plantuml/benizar-plantuml.puml
-res/styles/plantuml/benizar-plantuml/
-```
+## Helper comu
 
-Si el projecte no vol symlinks, usa `copy`:
+Per Mermaid:
 
 ```bash
-./resources/diavisuals/tools/install-to-project.sh . copy
+resources/diavisuals/tools/style-diagram-source.sh \
+  mermaid benizar-mermaid \
+  assets/diagrams/pipeline.mmd \
+  .cache/diagrams/pipeline.styled.mmd
+
+mmdc \
+  -i .cache/diagrams/pipeline.styled.mmd \
+  -o assets/diagrams/pipeline.mmd.svg \
+  -c resources/diavisuals/styles/mermaid/benizar-mermaid.json
 ```
+
+Per PlantUML:
+
+```bash
+resources/diavisuals/tools/style-diagram-source.sh \
+  plantuml benizar-plantuml \
+  figures/architecture.puml \
+  .cache/diagrams/architecture.styled.puml
+
+plantuml -tsvg .cache/diagrams/architecture.styled.puml
+```
+
+El helper detecta el tipus de diagrama i aplica l'override corresponent quan existeix.
 
 ## my-slides-vault
 
-`my-slides-vault` ja implementa el contracte:
+`my-slides-vault` ja implementa el contracte directament als filtres Lua:
 
 ```yaml
 diagram_styles:
@@ -34,45 +67,71 @@ diagram_styles:
   plantuml: benizar-plantuml
 ```
 
-Els filtres busquen primer el preset base i despres un override per tipus. Per exemple, un `quadrantChart` carrega `benizar-mermaid.json` i `benizar-mermaid/quadrantchart.mmd`.
+Per tant, pot migrar a `diavisuals` en dues fases:
+
+1. Afegir `diavisuals` com a submodul.
+2. Fer que `res/styles/mermaid` i `res/styles/plantuml` siguen symlinks o copies dels assets de `resources/diavisuals/styles`.
+
+No cal moure els filtres Lua a `diavisuals`; els filtres son part del build de diapositives.
 
 ## unaltrepaper
 
-`unaltrepaper` hauria de tenir el codi compartit de renderitzat i plantilla. Els estils poden entrar com a submodul o com a dependencia de recursos, pero no haurien de viure dins d'un paper concret.
+`unaltrepaper` ha de ser el lloc on viu el suport de papers: Docker, Makefile, figures, submissio, diff i plantilles. `diavisuals` ha d'entrar com a recurs compartit, no com a codi duplicat dins de cada paper.
 
-Contracte recomanat:
+Contracte recomanat dins d'un paper:
 
 ```text
-resources/diavisuals/          # submodul o subtree
-resources/styles/mermaid/      # symlinks o copia del paquet
-resources/styles/plantuml/     # symlinks o copia del paquet
+resources/unaltrepaper/       # factory del paper
+resources/diavisuals/         # submodul compartit d'estils
+figures/                      # fonts SVG, Mermaid, PlantUML del paper
 ```
 
-El paper pot exposar:
+Canvi recomanat en `unaltrepaper/scripts/build-figures.sh`:
 
-```yaml
-diagram_styles:
-  mermaid: benizar-mermaid
-  plantuml: benizar-plantuml
+- Acceptar `DIAVISUALS_DIR`, per defecte `/workspace/resources/diavisuals` si existeix.
+- Acceptar `MERMAID_STYLE`, per defecte `benizar-mermaid`.
+- Acceptar `PLANTUML_STYLE`, per defecte `benizar-plantuml`.
+- Abans de `mmdc`, generar un `.cache/*.styled.mmd` amb `style-diagram-source.sh` i usar el JSON del preset amb `--configFile`.
+- Abans de `plantuml`, generar un `.cache/*.styled.puml` amb el mateix helper.
+
+Aixi `unaltrepaperalpap` pot demostrar els diagrames, pero la logica compartida queda a `unaltrepaper` i l'estil queda a `diavisuals`.
+
+## unaltraweb
+
+`unaltraweb` ja té un plugin que reescriu referencies `.mmd` a `.mmd.svg` si el SVG generat existeix. Per tant, el millor encaix inicial es build-time, no browser-time.
+
+Flux recomanat:
+
+```text
+assets/diagrams/manual-flow.mmd          # font editable
+assets/diagrams/manual-flow.mmd.svg      # SVG generat amb diavisuals
 ```
 
-## unaltrepaperalpap
-
-Aquest repo hauria de demostrar l'us dels estils, les revisions i el latexdiff. No hauria de ser font d'estils compartits. Si necessita exemples de diagrames, els pot referenciar com a consumidors normals.
-
-## unaltraweb i altres webs
-
-Mermaid pot usar el JSON directament:
+El core o template d'`unaltraweb` hauria d'afegir un target, per exemple `make diagrams`, que faça:
 
 ```bash
-mmdc -i diagram.mmd -o diagram.svg -c resources/diavisuals/styles/mermaid/benizar-mermaid.json
+for src in assets/diagrams/*.mmd; do
+  name=$(basename "$src")
+  resources/diavisuals/tools/style-diagram-source.sh \
+    mermaid benizar-mermaid \
+    "$src" \
+    ".cache/diagrams/$name"
+  mmdc \
+    -i ".cache/diagrams/$name" \
+    -o "$src.svg" \
+    -c resources/diavisuals/styles/mermaid/benizar-mermaid.json
+ done
 ```
 
-Per aplicar overrides de tipus cal prependeix el snippet adequat abans de renderitzar:
+Els blocs inline ```mermaid``` que es renderitzen al navegador poden continuar usant el tema dinamic actual de la web. `diavisuals` hauria d'aplicar-se primer als diagrames font versionats com `.mmd`, perquè son reproduibles i encaixen amb el plugin existent.
 
-```bash
-cat resources/diavisuals/styles/mermaid/benizar-mermaid/flowchart.mmd diagram.mmd > .cache/diagram.styled.mmd
-mmdc -i .cache/diagram.styled.mmd -o diagram.svg -c resources/diavisuals/styles/mermaid/benizar-mermaid.json
-```
+PlantUML en web pot arribar en una segona fase amb la mateixa filosofia: font versionada `.puml`, SVG generat en build, i una regla equivalent de reescriptura si cal.
 
-PlantUML pot incloure el preset base dins del diagrama generat o el pipeline pot injectar-lo despres de `@startuml`.
+## Altres projectes
+
+Qualsevol projecte pot consumir el repo de dues maneres:
+
+- Directament, cridant `style-diagram-source.sh` i el motor corresponent.
+- Copiant o enllaçant `styles/` al lloc on el seu pipeline ja espera presets.
+
+El criteri es sempre el mateix: estil centralitzat, render local i documentat en el consumidor.
