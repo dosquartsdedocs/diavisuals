@@ -22,6 +22,30 @@ element {
   FontColor #0F223A
 }
 
+participant {
+  BackGroundColor #ECF4FF
+  LineColor #2A5DB0
+  FontColor #0F223A
+}
+
+collections {
+  BackGroundColor #ECF4FF
+  LineColor #2A5DB0
+  FontColor #0F223A
+}
+
+collection {
+  BackGroundColor #ECF4FF
+  LineColor #2A5DB0
+  FontColor #0F223A
+}
+
+database {
+  BackGroundColor #EEF5FF
+  LineColor #2A5DB0
+  FontColor #0F223A
+}
+
 note {
   BackGroundColor #F6FAFF
   LineColor #6F9DCE
@@ -106,6 +130,15 @@ skinparam SequenceParticipantBorderColor #2A5DB0
 skinparam SequenceParticipantBackgroundColor #ECF4FF
 skinparam SequenceBoxBorderColor #6F9DCE
 skinparam SequenceBoxBackgroundColor #F2F7FD
+skinparam SequenceCollectionBorderColor #2A5DB0
+skinparam SequenceCollectionBackgroundColor #ECF4FF
+skinparam SequenceCollectionFontColor #0F223A
+skinparam CollectionsBorderColor #2A5DB0
+skinparam CollectionsBackgroundColor #ECF4FF
+skinparam CollectionsFontColor #0F223A
+skinparam CollectionBorderColor #2A5DB0
+skinparam CollectionBackgroundColor #ECF4FF
+skinparam CollectionFontColor #0F223A
 
 skinparam ActivityBorderColor #2A5DB0
 skinparam ActivityBackgroundColor #ECF4FF
