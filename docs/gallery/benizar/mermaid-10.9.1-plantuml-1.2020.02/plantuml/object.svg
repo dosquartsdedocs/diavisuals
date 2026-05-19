@@ -1,0 +1,132 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?><svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" contentScriptType="application/ecmascript" contentStyleType="text/css" height="104px" preserveAspectRatio="none" style="width:264px;height:104px;" version="1.1" viewBox="0 0 264 104" width="264px" zoomAndPan="magnify"><defs/><g><rect fill="#EEF5FF" height="86.5" style="stroke: #2A5DB0; stroke-width: 1.5;" width="246" x="7" y="7"/><text fill="#0F223A" font-family="Latin Modern Sans" font-size="16" lengthAdjust="spacingAndGlyphs" textLength="57" x="101.5" y="23.8516">benizar</text><line style="stroke: #2A5DB0; stroke-width: 1.5;" x1="8" x2="252" y1="29.625" y2="29.625"/><text fill="#0F223A" font-family="Latin Modern Sans" font-size="16" lengthAdjust="spacingAndGlyphs" textLength="137" x="13" y="48.4766">family = "benizar"</text><text fill="#0F223A" font-family="Latin Modern Sans" font-size="16" lengthAdjust="spacingAndGlyphs" textLength="234" x="13" y="67.1016">mermaid = "benizar-mermaid"</text><text fill="#0F223A" font-family="Latin Modern Sans" font-size="16" lengthAdjust="spacingAndGlyphs" textLength="230" x="13" y="85.7266">plantuml = "benizar-plantuml"</text><!--MD5=[846e0e2e472e9ca1cf14de5608abb146]
+@startuml
+skinparam BackgroundColor transparent
+skinparam Shadowing false
+skinparam DefaultFontName "Latin Modern Sans"
+skinparam DefaultFontSize 16
+skinparam DefaultFontColor #0F223A
+skinparam ArrowColor #2A5DB0
+
+skinparam ActorStyle awesome
+skinparam ActorBackgroundColor #ECF4FF
+skinparam ActorBorderColor #2A5DB0
+skinparam ActorFontColor #0F223A
+
+skinparam actor {
+  BackgroundColor #ECF4FF
+  BorderColor #2A5DB0
+  FontColor #0F223A
+}
+
+skinparam rectangle {
+  BackgroundColor #EEF5FF
+  BorderColor #2A5DB0
+  FontColor #0F223A
+}
+
+skinparam component {
+  BackgroundColor #EEF5FF
+  BorderColor #2A5DB0
+  FontColor #0F223A
+}
+
+skinparam PackageBackgroundColor #EEF5FF
+skinparam PackageBorderColor #2A5DB0
+skinparam PackageFontColor #0F223A
+
+skinparam ClassBackgroundColor #EEF5FF
+skinparam ClassBorderColor #2A5DB0
+skinparam ClassFontColor #0F223A
+
+skinparam ObjectBackgroundColor #EEF5FF
+skinparam ObjectBorderColor #2A5DB0
+skinparam ObjectFontColor #0F223A
+
+skinparam StateBackgroundColor #ECF4FF
+skinparam StateBorderColor #2A5DB0
+skinparam StateFontColor #0F223A
+
+skinparam UsecaseBackgroundColor #ECF4FF
+skinparam UsecaseBorderColor #2A5DB0
+skinparam UsecaseFontColor #0F223A
+
+skinparam NodeBackgroundColor #EEF5FF
+skinparam NodeBorderColor #2A5DB0
+skinparam NodeFontColor #0F223A
+
+skinparam FolderBackgroundColor #EEF5FF
+skinparam FolderBorderColor #2A5DB0
+skinparam FolderFontColor #0F223A
+
+skinparam ArtifactBackgroundColor #EEF5FF
+skinparam ArtifactBorderColor #2A5DB0
+skinparam ArtifactFontColor #0F223A
+
+skinparam DatabaseBackgroundColor #EEF5FF
+skinparam DatabaseBorderColor #2A5DB0
+skinparam DatabaseFontColor #0F223A
+
+skinparam NoteBackgroundColor #F6FAFF
+skinparam NoteBorderColor #6F9DCE
+skinparam NoteFontColor #0F223A
+
+skinparam SequenceArrowColor #2A5DB0
+skinparam SequenceLifeLineBorderColor #6F9DCE
+skinparam SequenceLifeLineBackgroundColor #EEF5FF
+skinparam SequenceParticipantBorderColor #2A5DB0
+skinparam SequenceParticipantBackgroundColor #ECF4FF
+skinparam SequenceBoxBorderColor #6F9DCE
+skinparam SequenceBoxBackgroundColor #F2F7FD
+skinparam SequenceCollectionBorderColor #2A5DB0
+skinparam SequenceCollectionBackgroundColor #ECF4FF
+skinparam SequenceCollectionFontColor #0F223A
+skinparam CollectionsBorderColor #2A5DB0
+skinparam CollectionsBackgroundColor #ECF4FF
+skinparam CollectionsFontColor #0F223A
+skinparam CollectionBorderColor #2A5DB0
+skinparam CollectionBackgroundColor #ECF4FF
+skinparam CollectionFontColor #0F223A
+
+skinparam ActivityBorderColor #2A5DB0
+skinparam ActivityBackgroundColor #ECF4FF
+skinparam ActivityFontColor #0F223A
+skinparam ActivityDiamondBackgroundColor #ECF4FF
+skinparam ActivityDiamondBorderColor #2A5DB0
+skinparam ActivityDiamondFontColor #0F223A
+skinparam ActivityBarColor #2A5DB0
+skinparam PartitionBackgroundColor #F2F7FD
+skinparam PartitionBorderColor #6F9DCE
+skinparam PartitionFontColor #0F223A
+
+skinparam WbsBackgroundColor #EEF5FF
+skinparam WbsBorderColor #2A5DB0
+skinparam WbsFontColor #0F223A
+skinparam WBSBackgroundColor #EEF5FF
+skinparam WBSBorderColor #2A5DB0
+skinparam WBSFontColor #0F223A
+
+skinparam MindMapBackgroundColor #EEF5FF
+skinparam MindMapBorderColor #2A5DB0
+skinparam MindMapFontColor #0F223A
+skinparam MindmapBackgroundColor #EEF5FF
+skinparam MindmapBorderColor #2A5DB0
+skinparam MindmapFontColor #0F223A
+
+skinparam ObjectAttributeFontColor #0F223A
+object benizar {
+  family = "benizar"
+  mermaid = "benizar-mermaid"
+  plantuml = "benizar-plantuml"
+}
+@enduml
+
+PlantUML version 1.2020.02(Sun Mar 01 10:22:07 UTC 2020)
+(GPL source distribution)
+Java Runtime: OpenJDK Runtime Environment
+JVM: OpenJDK 64-Bit Server VM
+Java Version: 21.0.10+7-Ubuntu-124.04
+Operating System: Linux
+Default Encoding: UTF-8
+Language: en
+Country: US
+--></g></svg>

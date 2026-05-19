@@ -11,6 +11,8 @@
 
 Aixo evita que `diavisuals` acabe sabent massa de LaTeX, Jekyll o Beamer, i manté un contracte simple: estil compartit, build local.
 
+Els consumidors tambe haurien de declarar quin perfil de compatibilitat renderitzen, per exemple `mermaid-10.9.1-plantuml-1.2020.02`. El perfil no substitueix el pipeline local; nomes diu quines versions dels motors i quins tipus de diagrama estan comprovats visualment.
+
 ## Instal.lacio recomanada
 
 Per a projectes de dosquartsdedocs, usa submodul:

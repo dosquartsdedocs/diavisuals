@@ -19,6 +19,11 @@ require_file() {
 require_file styles/mermaid/benizar-mermaid.json
 require_file styles/plantuml/benizar-plantuml.puml
 require_file tokens/benizar.yml
+require_file compat/mermaid-10.9.1-plantuml-1.2020.02.env
+require_file docs/versioning.md
+require_file docs/gallery.md
+require_file tools/render-gallery-docker.sh
+require_file tools/render-gallery-local.sh
 require_file tools/style-diagram-source.sh
 require_file tools/list-style-families.sh
 require_file tools/resolve-style-name.sh
@@ -34,7 +39,7 @@ for type in "${plantuml_types[@]}"; do
 done
 
 python3 -m json.tool styles/mermaid/benizar-mermaid.json >/dev/null
-bash -n tools/check-style-files.sh tools/install-to-project.sh tools/render-examples.sh tools/style-diagram-source.sh tools/list-style-families.sh tools/resolve-style-name.sh
+bash -n tools/check-style-files.sh tools/install-to-project.sh tools/render-examples.sh tools/render-gallery-docker.sh tools/render-gallery-local.sh tools/style-diagram-source.sh tools/list-style-families.sh tools/resolve-style-name.sh compat/mermaid-10.9.1-plantuml-1.2020.02.env
 
 if [[ $fail -ne 0 ]]; then
   exit 1
