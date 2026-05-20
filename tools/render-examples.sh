@@ -4,18 +4,20 @@ set -euo pipefail
 out_dir=${1:-dist/examples}
 repo_root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 cd "$repo_root"
-rm -rf "$out_dir/mermaid" "$out_dir/plantuml" "$out_dir/manifest.csv"
-mkdir -p "$out_dir/mermaid" "$out_dir/plantuml" .cache/mermaid .cache/plantuml
+rm -rf "$out_dir/mermaid" "$out_dir/plantuml" "$out_dir/readme" "$out_dir/manifest.csv"
+mkdir -p "$out_dir/mermaid" "$out_dir/plantuml" "$out_dir/readme" .cache/mermaid .cache/plantuml
 
 family=${DIAVISUALS_FAMILY:-benizar}
 mermaid_style=${MERMAID_STYLE:-${family}-mermaid}
 plantuml_style=${PLANTUML_STYLE:-${family}-plantuml}
 mermaid_config=${MERMAID_CONFIG:-styles/mermaid/${mermaid_style}.json}
 puppeteer_config=${PUPPETEER_CONFIG:-.cache/puppeteer.json}
+readme_mermaid_types=${README_MERMAID_TYPES:-flowchart kanban quadrantchart}
+readme_plantuml_types=${README_PLANTUML_TYPES:-sequence files activity}
 
-if [[ ! -f $puppeteer_config ]]; then
+if [[ -z ${PUPPETEER_CONFIG:-} || ! -f $puppeteer_config ]]; then
   mkdir -p "$(dirname "$puppeteer_config")"
-  printf '{"args":["--no-sandbox"]}\n' > "$puppeteer_config"
+  printf '{"args":["--no-sandbox","--disable-setuid-sandbox","--disable-dev-shm-usage","--disable-crash-reporter","--disable-crashpad"]}\n' > "$puppeteer_config"
 fi
 
 contains_type() {
@@ -26,6 +28,14 @@ contains_type() {
 write_manifest() {
   local engine=$1 name=$2 status=$3 output=${4:-}
   printf '%s,%s,%s,%s\n' "$engine" "$name" "$status" "$output" >> "$out_dir/manifest.csv"
+}
+
+make_plantuml_readme_source() {
+  local input=$1 output=$2
+  sed \
+    -e 's/BackGroundColor transparent/BackGroundColor #FFFFFF/g' \
+    -e 's/skinparam BackgroundColor transparent/skinparam BackgroundColor #FFFFFF/g' \
+    "$input" > "$output"
 }
 
 printf 'engine,type,status,output\n' > "$out_dir/manifest.csv"
@@ -45,6 +55,9 @@ if command -v mmdc >/dev/null 2>&1; then
     output="$out_dir/mermaid/${name}.svg"
     tools/style-diagram-source.sh mermaid "$mermaid_style" "$src" "$styled"
     mmdc -i "$styled" -o "$output" -c "$mermaid_config" -p "$puppeteer_config" >/dev/null
+    if contains_type "$name" "$readme_mermaid_types"; then
+      mmdc -i "$styled" -o "$out_dir/readme/mermaid-${name}.png" -c "$mermaid_config" -p "$puppeteer_config" --scale 1 >/dev/null
+    fi
     write_manifest mermaid "$name" rendered "$output"
   done
 else
@@ -69,6 +82,17 @@ if command -v plantuml >/dev/null 2>&1; then
     if [[ ! -f $output ]]; then
       printf 'missing PlantUML output: %s\n' "$output" >&2
       exit 1
+    fi
+    if contains_type "$name" "$readme_plantuml_types"; then
+      readme_styled=".cache/plantuml/${name}.readme.puml"
+      readme_raw="$out_dir/readme/${name}.readme.png"
+      make_plantuml_readme_source "$styled" "$readme_styled"
+      plantuml -tpng -o "$(pwd)/$out_dir/readme" "$readme_styled" >/dev/null
+      if [[ ! -f $readme_raw ]]; then
+        printf 'missing PlantUML README thumbnail: %s\n' "$readme_raw" >&2
+        exit 1
+      fi
+      mv "$readme_raw" "$out_dir/readme/plantuml-${name}.png"
     fi
     write_manifest plantuml "$name" rendered "$output"
   done

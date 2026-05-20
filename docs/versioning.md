@@ -1,47 +1,71 @@
-# Versions i compatibilitat
+# Versioning And Compatibility
 
-`diavisuals` versiona dues coses que no sempre avancen al mateix ritme:
+`diavisuals` uses normal short release tags for the repository and separate compatibility profiles for render-engine guarantees.
 
-- El contracte d'estil del repo: tokens, presets, snippets per tipus i exemples.
-- Els motors que renderitzen els diagrames: Mermaid CLI i PlantUML.
+## Release Tags
 
-Per evitar ambiguitats, cada render reproduible usa un perfil en `compat/`.
-El nom del perfil inclou les versions dels motors, per exemple:
+Git tags should be SemVer names:
 
 ```text
-compat/mermaid-10.9.1-plantuml-1.2020.02.env
+v0.1.0
+v0.2.0
+v1.0.0
 ```
 
-Un projecte consumidor pot dir quin perfil suporta sense copiar estils. Per
-exemple, `unaltrepaper` pot documentar que la seua imatge Docker actual suporta
-`mermaid-10.9.1-plantuml-1.2020.02`, mentre que `unaltraweb` podria adoptar un
-perfil Mermaid mes nou quan el seu build ho permeta.
+Do not create Git tags such as `compat/mermaid-11.4.2-plantuml-1.2026.1` or `mermaid-11.4.2-plantuml-1.2026.1`. Those names are useful as compatibility profile identifiers, but they are too long and too implementation-specific for releases.
 
-## Regla de releases
+A release tag means: this repository version of tokens, style presets, per-diagram overrides, tools, examples, compatibility profiles, and rendered gallery manifests has been reviewed together.
 
-- Un canvi nomes visual dins del mateix contracte pot ser una release menor de
-  `diavisuals`.
-- Un canvi que afegeix o elimina tipus de diagrama suportats ha de crear o
-  actualitzar el perfil de compatibilitat corresponent.
-- Un canvi de versio Mermaid o PlantUML ha de crear un perfil nou, no
-  sobreescriure l'anterior.
-- Els projectes fills haurien de fixar un commit o tag de `diavisuals` i indicar
-  quin perfil renderitzen en CI o en Docker.
+## Compatibility Profiles
 
-## Galeria
+Files under `compat/` describe the render engines and diagram types covered by a release. The profile id can be descriptive because it is machine-readable metadata, not a Git tag.
 
-La galeria versionada viu en:
+Current default profile:
+
+```text
+compat/mermaid-11.4.2-plantuml-1.2026.1.env
+```
+
+It records:
+
+- Mermaid CLI: 11.4.2
+- PlantUML: 1.2026.1
+- Family: `benizar`
+- Gallery manifest: `docs/gallery/benizar/mermaid-11.4.2-plantuml-1.2026.1/manifest.csv`
+
+The older `mermaid-10.9.1-plantuml-1.2020.02` profile remains as a legacy compatibility record for the previous Ubuntu-package-based paper image.
+
+## Badges And Release Notes
+
+Use README badges and release notes to show what a short tag contains. For example:
+
+```markdown
+![release](https://img.shields.io/badge/release-v0.1.0-blue)
+![Mermaid CLI](https://img.shields.io/badge/Mermaid_CLI-11.4.2-ff3670)
+![PlantUML](https://img.shields.io/badge/PlantUML-1.2026.1-2a5db0)
+```
+
+The badge text and `docs/releases.md` should be updated when a release changes engine versions, families, or guaranteed diagram types.
+
+## Release Rule
+
+- A purely visual change within the same compatibility contract can be a normal patch or minor `diavisuals` release.
+- A change that adds or removes supported diagram types must update the relevant compatibility profile and gallery manifest.
+- A Mermaid or PlantUML engine upgrade must create a new compatibility profile instead of overwriting an older one.
+- Child projects should pin a short `diavisuals` release tag such as `v0.1.0` and state which compatibility profile they render in CI, Docker, or project documentation.
+
+## Gallery
+
+Versioned galleries live in:
 
 ```text
 docs/gallery/<family>/<compat-id>/
 ```
 
-Es regenera amb:
+Regenerate the default gallery with:
 
 ```bash
 make render-gallery
 ```
 
-El target usa Docker per evitar dependre de les eines instal.lades a la maquina
-local. Dins del contenidor s'executa `make render-gallery-local`, que crida
-`tools/render-examples.sh` amb el perfil carregat.
+The target uses Docker so the result does not depend on locally installed tools. Inside the container it runs `make render-gallery-local`, which calls `tools/render-examples.sh` with the selected profile loaded.

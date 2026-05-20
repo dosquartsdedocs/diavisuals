@@ -1,12 +1,24 @@
 block
   columns 1
+
   block:repo
-    columns 2
-    tokens[Tokens]
-    styles[Styles]
-    examples[Examples]
-    docs[Docs]
+    columns 1
+    title["diavisuals"]
+
+    block:assets
+      columns 2
+      tokens["Tokens"]
+      styles["Styles"]
+    end
+
+    block:checks
+      columns 2
+      examples["Examples"]
+      gallery["Gallery"]
+    end
   end
-  class repo wrapper
+
+  class repo,title wrapper
+  class assets,checks group
   class tokens,styles keyunit
-  class examples,docs unit
+  class examples,gallery unit

@@ -1,6 +1,6 @@
 SHELL := /usr/bin/env bash
 OUT_DIR ?= dist/examples
-COMPAT_PROFILE ?= compat/mermaid-10.9.1-plantuml-1.2020.02.env
+COMPAT_PROFILE ?= compat/mermaid-11.4.2-plantuml-1.2026.1.env
 
 .PHONY: help check render-examples render-gallery render-gallery-local clean
 

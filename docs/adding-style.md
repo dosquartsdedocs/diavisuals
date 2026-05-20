@@ -1,14 +1,14 @@
-# Afegir un estil nou
+# Adding A New Style
 
-Per afegir una familia nova, copia el patro de `benizar`:
+To add a new family, copy the `benizar` pattern:
 
-1. Crea `tokens/<nom>.yml` amb colors, fonts i rols semantics.
-2. Crea `styles/mermaid/<nom>-mermaid.json`.
-3. Crea `styles/mermaid/<nom>-mermaid/<diagram-type>.mmd` per a cada tipus suportat.
-4. Crea `styles/plantuml/<nom>-plantuml.puml`.
-5. Crea `styles/plantuml/<nom>-plantuml/<diagram-type>.puml` per a cada tipus suportat.
-6. Afegeix exemples en `examples/<nom>/...`.
-7. Amplia `tools/check-style-files.sh` per comprovar el nou estil.
-8. Executa `make check` i, si tens motors instal.lats, `make render-examples`.
+1. Create `tokens/<name>.yml` with colors, fonts, and semantic roles.
+2. Create `styles/mermaid/<name>-mermaid.json`.
+3. Create `styles/mermaid/<name>-mermaid/<diagram-type>.mmd` for each supported type.
+4. Create `styles/plantuml/<name>-plantuml.puml`.
+5. Create `styles/plantuml/<name>-plantuml/<diagram-type>.puml` for each supported type.
+6. Add examples under `examples/<name>/...`.
+7. Extend `tools/check-style-files.sh` so the new family is validated.
+8. Run `make check` and, when render engines are available, `make render-gallery` or `make render-examples`.
 
-Evita definir un estil nomes com a paleta global. El punt fort del repo es que cada tipus de diagrama pot tenir decisions propies: quadrants amb quatre colors contrastats, sequence diagrams amb espaiat diferent, treemaps amb series de colors, etc.
+Avoid defining a style only as a global palette. The main value of this repository is that each diagram type can make its own decisions: quadrant charts may need four contrasting colors, sequence diagrams may need different spacing, and treemaps may need a color series.

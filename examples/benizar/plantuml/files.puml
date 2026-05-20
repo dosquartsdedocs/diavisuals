@@ -1,8 +1,13 @@
 @startfiles
-/home/benizar/git/diavisuals
-+ styles
-++ mermaid
-++ plantuml
-+ docs
-+ examples
+/project/
+/project/main.tex
+/project/figures/
+/project/figures/<&code> workflow.mmd
+/project/figures/<&code> revision.puml
+/project/resources/
+/project/resources/diavisuals/
+/project/resources/diavisuals/styles/
+/project/resources/unaltrepaper/
+/project/docs/
+/project/docs/gallery/
 @endfiles

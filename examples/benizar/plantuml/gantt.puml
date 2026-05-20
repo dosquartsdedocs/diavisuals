@@ -1,7 +1,6 @@
 @startgantt
+Project starts 2026-01-01
 [Extract styles] lasts 1 day
-[Write docs] lasts 1 day
-[Wire consumers] lasts 2 days
-[Extract styles] then [Write docs]
-[Write docs] then [Wire consumers]
+[Write docs] starts at [Extract styles]'s end and lasts 1 day
+[Wire consumers] starts at [Write docs]'s end and lasts 2 days
 @endgantt

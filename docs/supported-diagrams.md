@@ -1,8 +1,8 @@
-# Diagrames suportats
+# Supported Diagrams
 
 ## Mermaid
 
-| Tipus | Fitxer d'estil | Exemple |
+| Type | Style file | Example |
 | --- | --- | --- |
 | flowchart | `styles/mermaid/benizar-mermaid/flowchart.mmd` | `examples/benizar/mermaid/flowchart.mmd` |
 | sequence | `styles/mermaid/benizar-mermaid/sequence.mmd` | `examples/benizar/mermaid/sequence.mmd` |
@@ -22,7 +22,7 @@
 
 ## PlantUML
 
-| Tipus | Fitxer d'estil | Exemple |
+| Type | Style file | Example |
 | --- | --- | --- |
 | sequence | `styles/plantuml/benizar-plantuml/sequence.puml` | `examples/benizar/plantuml/sequence.puml` |
 | class | `styles/plantuml/benizar-plantuml/class.puml` | `examples/benizar/plantuml/class.puml` |
@@ -40,4 +40,4 @@
 | salt | `styles/plantuml/benizar-plantuml/salt.puml` | `examples/benizar/plantuml/salt.puml` |
 | files | `styles/plantuml/benizar-plantuml/files.puml` | `examples/benizar/plantuml/files.puml` |
 
-Nota: el filtre actual de `my-slides-vault` no injecta snippets en `@startgantt` ni `@startsalt`; els fitxers existeixen per documentar el contracte i facilitar futurs consumidors.
+Support is profile-specific. For example, `files`, `json`, and `yaml` require a modern PlantUML profile such as `mermaid-11.4.2-plantuml-1.2026.1`. Release tags remain short SemVer names such as `v0.1.0`; the profile records the engine pair.
