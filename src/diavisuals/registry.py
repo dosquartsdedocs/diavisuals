@@ -315,18 +315,56 @@ def factory_manifest() -> dict[str, Any]:
 def install_check(command: str = "diavisuals") -> dict[str, Any]:
     resolved = shutil.which(command)
     result = None
+    mcp_dependency = None
     if resolved:
         result = run([resolved, "--version"], cwd=repo_dir(), timeout=30)
+        mcp_dependency = check_mcp_dependency(resolved)
     return {
-        "ok": bool(resolved and result and result["returncode"] == 0),
+        "ok": bool(
+            resolved
+            and result
+            and result["returncode"] == 0
+            and mcp_dependency
+            and mcp_dependency["returncode"] == 0
+        ),
         "command": command,
         "resolved": resolved,
         "version_result": result,
+        "mcp_dependency": mcp_dependency,
         "install_hints": [
             "uv tool install --editable .",
             "uv tool install --editable '.[mcp]'",
         ],
     }
+
+
+def entrypoint_python(command_path: str) -> str | None:
+    try:
+        first_line = pathlib.Path(command_path).read_text(encoding="utf-8", errors="ignore").splitlines()[0]
+    except (IndexError, OSError, UnicodeDecodeError):
+        return None
+    if not first_line.startswith("#!"):
+        return None
+    executable = first_line[2:].strip().split()[0]
+    if pathlib.Path(executable).exists():
+        return executable
+    return None
+
+
+def check_mcp_dependency(command_path: str) -> dict[str, Any]:
+    python = entrypoint_python(command_path)
+    if not python:
+        return {
+            "returncode": 1,
+            "stdout": "",
+            "stderr": "Could not determine the Python interpreter used by the CLI entrypoint.",
+            "command": [command_path],
+        }
+    return run(
+        [python, "-c", "from mcp.server.fastmcp import FastMCP; print('ok')"],
+        cwd=repo_dir(),
+        timeout=30,
+    )
 
 
 def json_dumps(payload: Any) -> str:

@@ -29,8 +29,9 @@ tests-mcp:
 tests-install:
 	@mkdir -p .tmp
 	@uv venv --clear .tmp/install-venv
-	@uv pip install --python .tmp/install-venv/bin/python --editable .
+	@uv pip install --python .tmp/install-venv/bin/python --editable '.[mcp]'
 	@.tmp/install-venv/bin/diavisuals --version
+	@.tmp/install-venv/bin/diavisuals install-check >/dev/null
 	@.tmp/install-venv/bin/diavisuals factory-manifest >/dev/null
 
 render-examples:
