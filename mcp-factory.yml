@@ -1,0 +1,61 @@
+---
+name: diavisuals
+kind: codex-mcp-factory
+version: 0.1.0
+description: Shared diagram visual style registry for Mermaid and PlantUML.
+workspace_rule:
+  consumer_root: shared-style-submodule
+  allowed_external_writes:
+    - .gitmodules
+commands:
+  check:
+    - diavisuals
+    - check
+  update:
+    - diavisuals
+    - update
+  install_codex_mcp:
+    - diavisuals
+    - install-codex-mcp
+  client_config:
+    - diavisuals
+    - mcp
+    - client-config
+  serve:
+    - diavisuals
+    - mcp
+    - serve
+  manifest:
+    - diavisuals
+    - factory-manifest
+  styles:
+    - diavisuals
+    - style-inventory
+discovery:
+  suggested_scan_roots:
+    - ~/git
+  notes:
+    - ContExt can scan sibling Git repositories for mcp-factory.yml.
+    - Builds should consume pinned files, not depend on this MCP at render time.
+mcp:
+  server_name: diavisuals
+  transport: stdio
+  resources:
+    - diavisuals://agent-guide
+    - diavisuals://styles
+    - diavisuals://compatibility
+    - diavisuals://examples
+    - diavisuals://factory-manifest
+  required_tools:
+    - style_inventory
+    - check_styles
+    - compatibility_status
+    - release_status
+    - submodule_plan
+    - update
+release:
+  default: v0.1.0
+  compatibility: mermaid-11.4.2-plantuml-1.2026.1
+  family: benizar
+---
+

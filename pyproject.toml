@@ -1,0 +1,36 @@
+[build-system]
+requires = ["hatchling>=1.21"]
+build-backend = "hatchling.build"
+
+[project]
+name = "diavisuals"
+version = "0.1.0"
+description = "Shared diagram visual style registry with MCP-friendly tooling."
+readme = "README.md"
+requires-python = ">=3.10"
+authors = [
+  { name = "dosquartsdedocs" }
+]
+keywords = ["diagrams", "mermaid", "plantuml", "mcp", "styles"]
+dependencies = []
+
+[project.optional-dependencies]
+mcp = ["mcp>=1.0.0"]
+dev = ["hatchling>=1.21"]
+
+[project.scripts]
+diavisuals = "diavisuals.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/diavisuals"]
+
+[tool.hatch.build.targets.wheel.force-include]
+"styles" = "diavisuals/assets/styles"
+"compat" = "diavisuals/assets/compat"
+"examples" = "diavisuals/assets/examples"
+"tokens" = "diavisuals/assets/tokens"
+"docs" = "diavisuals/assets/docs"
+"tools" = "diavisuals/assets/tools"
+"mcp-factory.yml" = "diavisuals/assets/mcp-factory.yml"
+"AGENTS.md" = "diavisuals/assets/AGENTS.md"
+"Makefile" = "diavisuals/assets/Makefile"

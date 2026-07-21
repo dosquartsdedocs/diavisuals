@@ -69,6 +69,34 @@ plantuml -tsvg .cache/figures/architecture.styled.puml
 
 See `docs/integration.md` for how `unaltrepaper`, `unaltraweb`, and `my-slides-vault` should consume the package, `docs/style-families.md` for the family contract, and `docs/style-contract.md` for the engine style contract.
 
+## CLI And MCP Registry
+
+`diavisuals` can also run as a lightweight MCP registry. The MCP helps agents
+discover style families, compatibility profiles, releases, examples, and
+submodule commands. Normal document builds should still read pinned files from
+the `diavisuals` submodule; they should not depend on the MCP server at render
+time.
+
+```bash
+diavisuals style-inventory
+diavisuals compatibility-status
+diavisuals check
+diavisuals release-status
+diavisuals submodule-plan --path docs/slides/resources/diavisuals
+diavisuals mcp client-config
+```
+
+The stdio MCP server is:
+
+```bash
+diavisuals --project /path/to/consumer-repo mcp serve
+```
+
+The root `mcp-factory.yml` file is a static discovery contract for external
+launchers such as ContExt. A launcher can scan sibling Git repositories under
+`~/git`, read that file, and call stable JSON commands such as `check`,
+`update`, `install-codex-mcp`, and `mcp client-config`.
+
 ## Rendered Gallery
 
 The default gallery is generated for the current release target `v0.1.0`. That short release tag points to the compatibility profile `mermaid-11.4.2-plantuml-1.2026.1`: Mermaid CLI 11.4.2 and PlantUML 1.2026.1, matching the modern diagram support used by `my-slides-vault`. The full manifest is [`docs/gallery/benizar/mermaid-11.4.2-plantuml-1.2026.1/manifest.csv`](docs/gallery/benizar/mermaid-11.4.2-plantuml-1.2026.1/manifest.csv).
@@ -110,6 +138,7 @@ This repository does not build full documents. It provides style assets, example
 
 ```bash
 make check
+make tests
 ```
 
 Render the default compatibility gallery through Docker:
@@ -122,4 +151,11 @@ If Mermaid CLI and PlantUML are already installed locally, render examples witho
 
 ```bash
 make render-examples
+```
+
+Optional packaging and MCP smoke tests:
+
+```bash
+make tests-install
+make tests-mcp
 ```
