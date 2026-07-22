@@ -8,7 +8,7 @@ import subprocess
 from typing import Any
 
 
-DEFAULT_RELEASE = "v0.1.0"
+DEFAULT_RELEASE = "v0.1.1"
 DEFAULT_COMPATIBILITY = "mermaid-11.4.2-plantuml-1.2026.1"
 DEFAULT_FAMILY = "benizar"
 DEFAULT_REMOTE = "git@github.com:dosquartsdedocs/diavisuals.git"
@@ -268,7 +268,7 @@ def factory_manifest() -> dict[str, Any]:
         "ok": True,
         "name": "diavisuals",
         "kind": "codex-mcp-factory",
-        "version": "0.1.0",
+        "version": "0.1.1",
         "factory": str(root),
         "git_head": git_head(root),
         "workspace_rule": {

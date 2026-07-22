@@ -55,7 +55,7 @@ class RegistryTest(unittest.TestCase):
 
         plan = submodule_plan("/tmp/project", path="docs/slides/resources/diavisuals")
         self.assertTrue(plan["ok"], plan)
-        self.assertEqual(plan["release"], "v0.1.0")
+        self.assertEqual(plan["release"], "v0.1.1")
         self.assertEqual(plan["commands"][0][1:3], ["submodule", "add"])
 
     def test_cli_json(self) -> None:
@@ -78,7 +78,7 @@ class RegistryTest(unittest.TestCase):
         self.assertTrue(payload["ok"])
 
     def test_release_status_reports_missing_tag_until_released(self) -> None:
-        status = release_status("v0.1.0")
+        status = release_status("v0.1.1")
         self.assertIn("ok", status)
         self.assertIn("current_head", status)
         self.assertIn("current_matches_release", status)

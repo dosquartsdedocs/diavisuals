@@ -6,12 +6,12 @@
 
 | Release tag | Compatibility profile | Mermaid CLI | PlantUML | Families | Gallery |
 | --- | --- | --- | --- | --- | --- |
-| `v0.1.0` | `mermaid-11.4.2-plantuml-1.2026.1` | 11.4.2 | 1.2026.1 | `benizar` | `docs/gallery/benizar/mermaid-11.4.2-plantuml-1.2026.1/manifest.csv` |
+| `v0.1.1` | `mermaid-11.4.2-plantuml-1.2026.1` | 11.4.2 | 1.2026.1 | `benizar` | `docs/gallery/benizar/mermaid-11.4.2-plantuml-1.2026.1/manifest.csv` |
 
 Badges for this release:
 
 ```markdown
-![release](https://img.shields.io/badge/release-v0.1.0-blue)
+![release](https://img.shields.io/badge/release-v0.1.1-blue)
 ![Mermaid CLI](https://img.shields.io/badge/Mermaid_CLI-11.4.2-ff3670)
 ![PlantUML](https://img.shields.io/badge/PlantUML-1.2026.1-2a5db0)
 ![family](https://img.shields.io/badge/family-benizar-2a5db0)

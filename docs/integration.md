@@ -61,7 +61,7 @@ The helper resolves a family (`benizar`) to the engine-specific style name (`ben
 
 ## my-slides-vault
 
-`my-slides-vault` is the reference consumer for the `v0.1.0` release target and its modern profile `mermaid-11.4.2-plantuml-1.2026.1`. It already implements the style contract in Lua filters:
+`my-slides-vault` is the reference consumer for the `v0.1.1` release target and its modern profile `mermaid-11.4.2-plantuml-1.2026.1`. It already implements the style contract in Lua filters:
 
 ```yaml
 diagram_styles:

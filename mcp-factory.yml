@@ -1,7 +1,7 @@
 ---
 name: diavisuals
 kind: codex-mcp-factory
-version: 0.1.0
+version: 0.1.1
 description: Shared diagram visual style registry for Mermaid and PlantUML.
 workspace_rule:
   consumer_root: shared-style-submodule
@@ -54,8 +54,7 @@ mcp:
     - submodule_plan
     - update
 release:
-  default: v0.1.0
+  default: v0.1.1
   compatibility: mermaid-11.4.2-plantuml-1.2026.1
   family: benizar
 ---
-
