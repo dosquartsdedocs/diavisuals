@@ -17,6 +17,7 @@ from diavisuals.registry import (
     factory_manifest,
     json_dumps,
     release_status,
+    style_audit,
     style_inventory,
     submodule_plan,
 )
@@ -40,6 +41,17 @@ class RegistryTest(unittest.TestCase):
         self.assertTrue(check["ok"], check)
         self.assertEqual(check["issues"], [])
 
+    def test_style_audit_checks_tokens_and_rendered_gallery(self) -> None:
+        audit = style_audit()
+        self.assertTrue(audit["ok"], audit)
+        self.assertEqual(audit["contract"]["source"], "vendored-package-assets")
+        self.assertEqual(audit["contract"]["styles"]["mermaid"], "benizar-mermaid")
+        self.assertEqual(audit["contract"]["styles"]["plantuml"], "benizar-plantuml")
+        self.assertGreaterEqual(audit["tokens"]["hex_color_count"], 20)
+        self.assertEqual(audit["gallery"]["engines"]["mermaid"]["rendered"], 15)
+        self.assertEqual(audit["gallery"]["engines"]["plantuml"]["rendered"], 15)
+        self.assertEqual(audit["gallery"]["missing_outputs"], [])
+
     def test_compatibility_status(self) -> None:
         status = compatibility_status("mermaid-11.4.2-plantuml-1.2026.1")
         self.assertTrue(status["ok"], status)
@@ -52,33 +64,36 @@ class RegistryTest(unittest.TestCase):
         self.assertTrue(manifest["ok"], manifest)
         self.assertEqual(manifest["name"], "diavisuals")
         self.assertIn("style_inventory", manifest["mcp"]["tools"])
+        self.assertIn("style_audit", manifest["mcp"]["tools"])
+        self.assertEqual(manifest["workspace_rule"]["consumer_root"], "vendored-style-package")
 
         plan = submodule_plan("/tmp/project", path="docs/slides/resources/diavisuals")
         self.assertTrue(plan["ok"], plan)
-        self.assertEqual(plan["release"], "v0.1.1")
+        self.assertEqual(plan["release"], "v0.1.2")
         self.assertEqual(plan["commands"][0][1:3], ["submodule", "add"])
 
     def test_cli_json(self) -> None:
-        completed = subprocess.run(
-            [
-                sys.executable,
-                "-m",
-                "diavisuals.cli",
-                "style-inventory",
-            ],
-            cwd=REPO_ROOT,
-            text=True,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            env={**os.environ, "PYTHONPATH": str(REPO_ROOT / "src")},
-            check=False,
-        )
-        self.assertEqual(completed.returncode, 0, completed.stderr)
-        payload = json.loads(completed.stdout)
-        self.assertTrue(payload["ok"])
+        for command in ["style-inventory", "style-audit"]:
+            completed = subprocess.run(
+                [
+                    sys.executable,
+                    "-m",
+                    "diavisuals.cli",
+                    command,
+                ],
+                cwd=REPO_ROOT,
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                env={**os.environ, "PYTHONPATH": str(REPO_ROOT / "src")},
+                check=False,
+            )
+            self.assertEqual(completed.returncode, 0, completed.stderr)
+            payload = json.loads(completed.stdout)
+            self.assertTrue(payload["ok"])
 
     def test_release_status_reports_missing_tag_until_released(self) -> None:
-        status = release_status("v0.1.1")
+        status = release_status("v0.1.2")
         self.assertIn("ok", status)
         self.assertIn("current_head", status)
         self.assertIn("current_matches_release", status)
@@ -112,16 +127,22 @@ class RegistryTest(unittest.TestCase):
                     resources = await session.list_resources()
                     resource_uris = {str(resource.uri) for resource in resources.resources}
                     self.assertIn("diavisuals://styles", resource_uris)
+                    self.assertIn("diavisuals://style-audit", resource_uris)
                     self.assertIn("diavisuals://factory-manifest", resource_uris)
 
                     tools = await session.list_tools()
                     tool_names = {tool.name for tool in tools.tools}
                     self.assertIn("style_inventory", tool_names)
+                    self.assertIn("style_audit", tool_names)
                     self.assertIn("submodule_plan", tool_names)
 
                     result = await session.call_tool("style_inventory", {})
                     text = "\n".join(getattr(item, "text", "") for item in result.content)
                     self.assertIn("benizar", text)
+
+                    audit = await session.call_tool("style_audit", {})
+                    audit_text = "\n".join(getattr(item, "text", "") for item in audit.content)
+                    self.assertIn("vendored-package-assets", audit_text)
 
         asyncio.run(run_smoke())
 

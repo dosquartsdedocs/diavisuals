@@ -12,6 +12,7 @@ from .registry import (
     factory_manifest as core_factory_manifest,
     json_dumps,
     release_status as core_release_status,
+    style_audit as core_style_audit,
     repo_dir,
     style_inventory as core_style_inventory,
     submodule_plan as core_submodule_plan,
@@ -47,6 +48,11 @@ def run_server(project: pathlib.Path) -> None:
         """Compatibility profile inventory."""
         return json_dumps(core_compatibility_status())
 
+    @mcp.resource("diavisuals://style-audit")
+    def default_style_audit() -> str:
+        """Default style-family audit."""
+        return json_dumps(core_style_audit())
+
     @mcp.resource("diavisuals://examples")
     def examples() -> str:
         """Rendered/source example inventory grouped by style family."""
@@ -74,6 +80,11 @@ def run_server(project: pathlib.Path) -> None:
     def style_inventory() -> dict[str, Any]:
         """List style families, overrides, examples, and tokens."""
         return core_style_inventory()
+
+    @mcp.tool()
+    def style_audit(profile: str = DEFAULT_COMPATIBILITY, family: str = DEFAULT_FAMILY) -> dict[str, Any]:
+        """Validate tokens, examples, compatibility, and rendered gallery for a style family."""
+        return core_style_audit(profile=profile, family=family)
 
     @mcp.tool()
     def check_styles(profile: str = DEFAULT_COMPATIBILITY, family: str = DEFAULT_FAMILY) -> dict[str, Any]:

@@ -11,15 +11,22 @@
 
 This keeps `diavisuals` from knowing too much about LaTeX, Jekyll, or Beamer, while still giving consumers a simple contract: shared style, local rendering, declared compatibility profile.
 
-Consumers should pin a short `diavisuals` release tag such as `v0.1.0` and declare which compatibility profile they render, for example `mermaid-11.4.2-plantuml-1.2026.1`. The profile does not replace the local pipeline; it only states which engine versions and diagram types have been visually checked.
+Consumers should pin a short `diavisuals` release tag such as `v0.1.2` and declare which compatibility profile they render, for example `mermaid-11.4.2-plantuml-1.2026.1`. The profile does not replace the local pipeline; it only states which engine versions and diagram types have been visually checked.
 
 ## Recommended Installation
 
-For dosquartsdedocs projects, use a submodule:
+For dosquartsdedocs projects, prefer a vendored package copy. The consumer
+factory should copy `styles/`, `compat/`, and `tokens/` from the installed
+`diavisuals` package or checkout into its own resource tree and record:
 
-```bash
-git submodule add git@github.com:dosquartsdedocs/diavisuals.git resources/diavisuals
-git submodule update --init --recursive
+```yaml
+diavisuals:
+  path: resources/diavisuals
+  source: package
+  release: v0.1.2
+  compatibility: mermaid-11.4.2-plantuml-1.2026.1
+diagram_styles:
+  family: benizar
 ```
 
 If a project already expects `res/styles/mermaid` and `res/styles/plantuml`, expose the assets with:
@@ -29,6 +36,13 @@ If a project already expects `res/styles/mermaid` and `res/styles/plantuml`, exp
 ```
 
 Use `copy` only when the project cannot use symlinks.
+
+Submodules remain an explicit opt-in for repositories that want Git to own the
+style checkout:
+
+```bash
+diavisuals submodule-plan --path resources/diavisuals
+```
 
 ## Common Helper
 
@@ -61,7 +75,7 @@ The helper resolves a family (`benizar`) to the engine-specific style name (`ben
 
 ## my-slides-vault
 
-`my-slides-vault` is the reference consumer for the `v0.1.1` release target and its modern profile `mermaid-11.4.2-plantuml-1.2026.1`. It already implements the style contract in Lua filters:
+`my-slides-vault` is the reference consumer for the `v0.1.2` release target and its modern profile `mermaid-11.4.2-plantuml-1.2026.1`. It already implements the style contract in Lua filters:
 
 ```yaml
 diagram_styles:
@@ -71,8 +85,8 @@ diagram_styles:
 
 Migration can happen in two steps:
 
-1. Add `diavisuals` as a submodule.
-2. Make `res/styles/mermaid` and `res/styles/plantuml` symlinks or copies of `resources/diavisuals/styles`.
+1. Run `my-slides-vault init` to vendor `diavisuals` under `docs/slides/resources/diavisuals`.
+2. Keep `diagram_styles.family: benizar` unless the deck intentionally chooses another family.
 
 The Lua filters should stay in `my-slides-vault`; they are part of the slide build pipeline.
 
@@ -84,7 +98,7 @@ Recommended paper layout:
 
 ```text
 resources/unaltrepaper/       # paper factory
-resources/diavisuals/         # shared style submodule
+resources/diavisuals/         # vendored shared style assets
 figures/                      # paper SVG, Mermaid, and PlantUML sources
 ```
 

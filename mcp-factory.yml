@@ -1,12 +1,11 @@
 ---
 name: diavisuals
 kind: codex-mcp-factory
-version: 0.1.1
+version: 0.1.2
 description: Shared diagram visual style registry for Mermaid and PlantUML.
 workspace_rule:
-  consumer_root: shared-style-submodule
-  allowed_external_writes:
-    - .gitmodules
+  consumer_root: vendored-style-package
+  allowed_external_writes: []
 commands:
   check:
     - diavisuals
@@ -31,6 +30,9 @@ commands:
   styles:
     - diavisuals
     - style-inventory
+  audit:
+    - diavisuals
+    - style-audit
 discovery:
   suggested_scan_roots:
     - ~/git
@@ -44,17 +46,19 @@ mcp:
     - diavisuals://agent-guide
     - diavisuals://styles
     - diavisuals://compatibility
+    - diavisuals://style-audit
     - diavisuals://examples
     - diavisuals://factory-manifest
   required_tools:
     - style_inventory
+    - style_audit
     - check_styles
     - compatibility_status
     - release_status
     - submodule_plan
     - update
 release:
-  default: v0.1.1
+  default: v0.1.2
   compatibility: mermaid-11.4.2-plantuml-1.2026.1
   family: benizar
 ---

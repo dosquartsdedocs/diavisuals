@@ -40,7 +40,7 @@ The older `mermaid-10.9.1-plantuml-1.2020.02` profile remains as a legacy compat
 Use README badges and release notes to show what a short tag contains. For example:
 
 ```markdown
-![release](https://img.shields.io/badge/release-v0.1.1-blue)
+![release](https://img.shields.io/badge/release-v0.1.2-blue)
 ![Mermaid CLI](https://img.shields.io/badge/Mermaid_CLI-11.4.2-ff3670)
 ![PlantUML](https://img.shields.io/badge/PlantUML-1.2026.1-2a5db0)
 ```

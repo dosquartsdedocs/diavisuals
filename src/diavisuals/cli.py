@@ -20,6 +20,7 @@ from .registry import (
     install_check,
     json_dumps,
     release_status,
+    style_audit,
     style_inventory,
     submodule_plan,
     update_factory,
@@ -33,6 +34,12 @@ def print_payload(payload: Any) -> None:
 
 def cmd_style_inventory(args: argparse.Namespace) -> int:
     payload = style_inventory()
+    print_payload(payload)
+    return 0 if payload.get("ok") else 1
+
+
+def cmd_style_audit(args: argparse.Namespace) -> int:
+    payload = style_audit(profile=args.profile, family=args.family)
     print_payload(payload)
     return 0 if payload.get("ok") else 1
 
@@ -156,6 +163,11 @@ def build_parser() -> argparse.ArgumentParser:
     styles_parser = subcommands.add_parser("style-inventory", help="List style families, overrides, examples, and tokens")
     styles_parser.set_defaults(func=cmd_style_inventory)
 
+    audit_parser = subcommands.add_parser("style-audit", help="Validate tokens, examples, compatibility, and rendered gallery for a style family")
+    audit_parser.add_argument("--profile", default=DEFAULT_COMPATIBILITY)
+    audit_parser.add_argument("--family", default=DEFAULT_FAMILY)
+    audit_parser.set_defaults(func=cmd_style_audit)
+
     compat_parser = subcommands.add_parser("compatibility-status", help="Inspect compatibility profiles")
     compat_parser.add_argument("--profile", default=DEFAULT_COMPATIBILITY)
     compat_parser.set_defaults(func=cmd_compatibility_status)
@@ -220,4 +232,3 @@ def main(argv: list[str] | None = None) -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-

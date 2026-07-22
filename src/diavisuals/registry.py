@@ -1,17 +1,20 @@
 from __future__ import annotations
 
+import csv
 import json
 import os
 import pathlib
+import re
 import shutil
 import subprocess
 from typing import Any
 
 
-DEFAULT_RELEASE = "v0.1.1"
+DEFAULT_RELEASE = "v0.1.2"
 DEFAULT_COMPATIBILITY = "mermaid-11.4.2-plantuml-1.2026.1"
 DEFAULT_FAMILY = "benizar"
 DEFAULT_REMOTE = "git@github.com:dosquartsdedocs/diavisuals.git"
+HEX_COLOR_RE = re.compile(r"#[0-9A-Fa-f]{6}\b")
 
 
 def repo_dir() -> pathlib.Path:
@@ -161,6 +164,131 @@ def compatibility_status(profile: str = DEFAULT_COMPATIBILITY) -> dict[str, Any]
     }
 
 
+def token_palette(root: pathlib.Path, family: str) -> dict[str, Any]:
+    path = root / "tokens" / f"{family}.yml"
+    if not path.is_file():
+        return {
+            "path": rel(path, root),
+            "exists": False,
+            "hex_colors": [],
+            "hex_color_count": 0,
+        }
+    colors = sorted({match.group(0).upper() for match in HEX_COLOR_RE.finditer(path.read_text(encoding="utf-8"))})
+    return {
+        "path": rel(path, root),
+        "exists": True,
+        "hex_colors": colors,
+        "hex_color_count": len(colors),
+    }
+
+
+def gallery_status(profile: str = DEFAULT_COMPATIBILITY, family: str = DEFAULT_FAMILY) -> dict[str, Any]:
+    root = repo_dir()
+    requested = profile.removesuffix(".env")
+    gallery_root = root / "docs" / "gallery" / family / requested
+    manifest = gallery_root / "manifest.csv"
+    rows: list[dict[str, Any]] = []
+    engines: dict[str, dict[str, Any]] = {}
+    missing_outputs: list[str] = []
+    non_rendered: list[dict[str, str]] = []
+
+    if manifest.is_file():
+        with manifest.open(newline="", encoding="utf-8") as handle:
+            for row in csv.DictReader(handle):
+                engine = str(row.get("engine") or "")
+                diagram_type = str(row.get("type") or "")
+                status = str(row.get("status") or "")
+                output = str(row.get("output") or "")
+                output_path = root / output
+                exists = output_path.is_file()
+                if status != "rendered":
+                    non_rendered.append({"engine": engine, "type": diagram_type, "status": status})
+                if status == "rendered" and not exists:
+                    missing_outputs.append(output)
+                rows.append(
+                    {
+                        "engine": engine,
+                        "type": diagram_type,
+                        "status": status,
+                        "output": output,
+                        "exists": exists,
+                    }
+                )
+                summary = engines.setdefault(
+                    engine,
+                    {
+                        "rendered": 0,
+                        "missing": 0,
+                        "non_rendered": 0,
+                        "types": [],
+                    },
+                )
+                summary["types"].append(diagram_type)
+                if status == "rendered" and exists:
+                    summary["rendered"] += 1
+                elif status == "rendered":
+                    summary["missing"] += 1
+                else:
+                    summary["non_rendered"] += 1
+
+    return {
+        "ok": manifest.is_file() and not missing_outputs and not non_rendered,
+        "profile": requested,
+        "family": family,
+        "gallery_root": rel(gallery_root, root),
+        "manifest": {"path": rel(manifest, root), "exists": manifest.is_file()},
+        "rendered_count": sum(1 for row in rows if row["status"] == "rendered" and row["exists"]),
+        "row_count": len(rows),
+        "engines": engines,
+        "missing_outputs": missing_outputs,
+        "non_rendered": non_rendered,
+    }
+
+
+def style_audit(profile: str = DEFAULT_COMPATIBILITY, family: str = DEFAULT_FAMILY) -> dict[str, Any]:
+    root = repo_dir()
+    inventory = style_inventory()
+    compat = compatibility_status(profile)
+    family_item = next((item for item in inventory["families"] if item["family"] == family), None)
+    palette = token_palette(root, family)
+    gallery = gallery_status(profile=profile, family=family)
+    styles = {
+        "family": family,
+        "mermaid": f"{family}-mermaid",
+        "plantuml": f"{family}-plantuml",
+    }
+
+    issues: list[str] = []
+    if family_item is None:
+        issues.append(f"missing style family: {family}")
+    elif not family_item["ok"]:
+        issues.append(f"incomplete style family: {family}")
+    if not palette["exists"]:
+        issues.append(f"missing token file: tokens/{family}.yml")
+    if not compat["ok"]:
+        issues.append(f"missing compatibility profile: {profile}")
+    if not gallery["ok"]:
+        issues.append(f"incomplete rendered gallery: {family}/{profile}")
+
+    return {
+        "ok": not issues,
+        "issues": issues,
+        "repo": str(root),
+        "git_head": git_head(root),
+        "git_tag": git_tag(root),
+        "contract": {
+            "source": "vendored-package-assets",
+            "family": family,
+            "compatibility": profile.removesuffix(".env"),
+            "styles": styles,
+        },
+        "tokens": palette,
+        "family": family_item,
+        "compatibility": compat,
+        "gallery": gallery,
+    }
+
+
 def check_styles(profile: str = DEFAULT_COMPATIBILITY, family: str = DEFAULT_FAMILY) -> dict[str, Any]:
     inventory = style_inventory()
     compat = compatibility_status(profile)
@@ -268,12 +396,12 @@ def factory_manifest() -> dict[str, Any]:
         "ok": True,
         "name": "diavisuals",
         "kind": "codex-mcp-factory",
-        "version": "0.1.1",
+        "version": "0.1.2",
         "factory": str(root),
         "git_head": git_head(root),
         "workspace_rule": {
-            "consumer_root": "shared-style-submodule",
-            "allowed_external_writes": [".gitmodules"],
+            "consumer_root": "vendored-style-package",
+            "allowed_external_writes": [],
         },
         "commands": {
             "check": ["diavisuals", "check"],
@@ -283,6 +411,7 @@ def factory_manifest() -> dict[str, Any]:
             "serve": ["diavisuals", "mcp", "serve"],
             "manifest": ["diavisuals", "factory-manifest"],
             "styles": ["diavisuals", "style-inventory"],
+            "audit": ["diavisuals", "style-audit"],
         },
         "mcp": {
             "server_name": "diavisuals",
@@ -291,11 +420,13 @@ def factory_manifest() -> dict[str, Any]:
                 "diavisuals://agent-guide",
                 "diavisuals://styles",
                 "diavisuals://compatibility",
+                "diavisuals://style-audit",
                 "diavisuals://examples",
                 "diavisuals://factory-manifest",
             ],
             "tools": [
                 "style_inventory",
+                "style_audit",
                 "check_styles",
                 "compatibility_status",
                 "release_status",

@@ -1,6 +1,6 @@
 # diavisuals
 
-![release](https://img.shields.io/badge/release-v0.1.1-blue) ![Mermaid CLI](https://img.shields.io/badge/Mermaid_CLI-11.4.2-ff3670) ![PlantUML](https://img.shields.io/badge/PlantUML-1.2026.1-2a5db0) ![family](https://img.shields.io/badge/family-benizar-2a5db0)
+![release](https://img.shields.io/badge/release-v0.1.2-blue) ![Mermaid CLI](https://img.shields.io/badge/Mermaid_CLI-11.4.2-ff3670) ![PlantUML](https://img.shields.io/badge/PlantUML-1.2026.1-2a5db0) ![family](https://img.shields.io/badge/family-benizar-2a5db0)
 
 `diavisuals` centralizes shared Mermaid and PlantUML visual styles for dosquartsdedocs projects. The goal is to stop copying one-off CSS and `skinparam` fragments into each paper, website, or slide deck, and to keep one tested contract for technical diagrams.
 
@@ -33,13 +33,13 @@ That split matters because a quadrant chart, a sequence diagram, and a treemap n
 
 ## Quick Use
 
-In a consumer project:
+Consumers normally vendor the released assets into their own resource tree. For
+example, `my-slides-vault init` copies the package assets into
+`docs/slides/resources/diavisuals` and records the chosen release/profile in
+`docs/slides/slides.yml`.
 
-```bash
-git submodule add git@github.com:dosquartsdedocs/diavisuals.git resources/diavisuals
-```
-
-Prepare a styled Mermaid source:
+If a project already has a local copy at `resources/diavisuals`, prepare a
+styled Mermaid source with:
 
 ```bash
 resources/diavisuals/tools/style-diagram-source.sh \
@@ -69,20 +69,27 @@ plantuml -tsvg .cache/figures/architecture.styled.puml
 
 See `docs/integration.md` for how `unaltrepaper`, `unaltraweb`, and `my-slides-vault` should consume the package, `docs/style-families.md` for the family contract, and `docs/style-contract.md` for the engine style contract.
 
+Submodule mode is still available when a repository explicitly wants Git to own
+the shared checkout:
+
+```bash
+diavisuals submodule-plan --path docs/slides/resources/diavisuals
+```
+
 ## CLI And MCP Registry
 
 `diavisuals` can also run as a lightweight MCP registry. The MCP helps agents
 discover style families, compatibility profiles, releases, examples, and
-submodule commands. Normal document builds should still read pinned files from
-the `diavisuals` submodule; they should not depend on the MCP server at render
-time.
+style audits. Normal document builds should still read pinned files from a
+vendored package copy or checkout; they should not depend on the MCP server at
+render time.
 
 ```bash
 diavisuals style-inventory
+diavisuals style-audit
 diavisuals compatibility-status
 diavisuals check
 diavisuals release-status
-diavisuals submodule-plan --path docs/slides/resources/diavisuals
 diavisuals mcp client-config
 ```
 
@@ -99,7 +106,7 @@ launchers such as ContExt. A launcher can scan sibling Git repositories under
 
 ## Rendered Gallery
 
-The default gallery is generated for the current release target `v0.1.1`. That short release tag points to the compatibility profile `mermaid-11.4.2-plantuml-1.2026.1`: Mermaid CLI 11.4.2 and PlantUML 1.2026.1, matching the modern diagram support used by `my-slides-vault`. The full manifest is [`docs/gallery/benizar/mermaid-11.4.2-plantuml-1.2026.1/manifest.csv`](docs/gallery/benizar/mermaid-11.4.2-plantuml-1.2026.1/manifest.csv).
+The default gallery is generated for the current release target `v0.1.2`. That short release tag points to the compatibility profile `mermaid-11.4.2-plantuml-1.2026.1`: Mermaid CLI 11.4.2 and PlantUML 1.2026.1, matching the modern diagram support used by `my-slides-vault`. The full manifest is [`docs/gallery/benizar/mermaid-11.4.2-plantuml-1.2026.1/manifest.csv`](docs/gallery/benizar/mermaid-11.4.2-plantuml-1.2026.1/manifest.csv).
 
 README previews are generated as PNG thumbnails from the same examples as the full SVG gallery. This keeps labels stable in Markdown renderers that handle Mermaid SVG `foreignObject` text differently.
 
