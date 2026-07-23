@@ -6,6 +6,19 @@ description: Shared diagram visual style registry for Mermaid and PlantUML.
 workspace_rule:
   consumer_root: vendored-style-package
   allowed_external_writes: []
+runtime:
+  kind: python
+  package_manager: uv
+  package: diavisuals
+  module: diavisuals
+transport:
+  type: stdio
+  command:
+    - diavisuals
+    - --project
+    - '${workspaceFolder}'
+    - mcp
+    - serve
 commands:
   check:
     - diavisuals
