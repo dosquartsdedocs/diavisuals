@@ -20,9 +20,15 @@ transport:
     - mcp
     - serve
 commands:
+  build:
+    - make
+    - mcp-build
   check:
-    - diavisuals
-    - check
+    - make
+    - mcp-check
+  smoke:
+    - make
+    - mcp-smoke
   update:
     - diavisuals
     - update

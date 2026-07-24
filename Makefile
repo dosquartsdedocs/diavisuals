@@ -2,7 +2,7 @@ SHELL := /usr/bin/env bash
 OUT_DIR ?= dist/examples
 COMPAT_PROFILE ?= compat/mermaid-11.4.2-plantuml-1.2026.1.env
 
-.PHONY: help check tests test tests-mcp tests-install render-examples render-gallery render-gallery-local clean
+.PHONY: help check tests test tests-mcp tests-install mcp-build mcp-check mcp-smoke render-examples render-gallery render-gallery-local clean
 
 help:
 	@printf "Targets:\n"
@@ -10,6 +10,8 @@ help:
 	@printf "  make tests            Run Python registry tests and shell checks\n"
 	@printf "  make tests-mcp        Run MCP stdio smoke test with optional dependencies\n"
 	@printf "  make tests-install    Verify editable CLI installation in .tmp\n"
+	@printf "  make mcp-build        Prepare the MCP optional dependencies\n"
+	@printf "  make mcp-smoke        Run the repo-owned MCP smoke check\n"
 	@printf "  make render-examples  Render examples when mmdc/plantuml are installed\n"
 	@printf "  make render-gallery   Render README gallery through a compatibility profile\n"
 	@printf "  make clean            Remove generated outputs\n"
@@ -33,6 +35,13 @@ tests-install:
 	@.tmp/install-venv/bin/diavisuals --version
 	@.tmp/install-venv/bin/diavisuals install-check >/dev/null
 	@.tmp/install-venv/bin/diavisuals factory-manifest >/dev/null
+
+mcp-build:
+	@uv run --extra mcp diavisuals install-check >/dev/null
+
+mcp-check: check
+
+mcp-smoke: tests-mcp
 
 render-examples:
 	@tools/render-examples.sh "$(OUT_DIR)"
