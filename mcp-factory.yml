@@ -19,11 +19,11 @@ runtime:
 transport:
   type: stdio
   command:
-    - diavisuals
-    - --project
-    - '${workspaceFolder}'
-    - mcp
-    - serve
+    - make
+    - -C
+    - '${factoryRoot}'
+    - mcp-stdio
+    - 'PROJECT=${workspaceFolder}'
 commands:
   build:
     - make
@@ -48,9 +48,8 @@ commands:
     - mcp
     - client-config
   serve:
-    - diavisuals
-    - mcp
-    - serve
+    - make
+    - mcp-stdio
   manifest:
     - diavisuals
     - factory-manifest

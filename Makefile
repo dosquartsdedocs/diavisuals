@@ -6,7 +6,7 @@ ENGINE ?= auto
 FAMILY ?= benizar
 FORMAT ?= svg
 
-.PHONY: help check tests test tests-mcp tests-install docker-build-renderer mcp-build mcp-init mcp-check mcp-smoke render-diagram render-examples render-gallery render-gallery-local clean
+.PHONY: help check tests test tests-mcp tests-install docker-build-renderer mcp-build mcp-init mcp-check mcp-smoke mcp-stdio render-diagram render-examples render-gallery render-gallery-local clean
 
 help:
 	@printf "Targets:\n"
@@ -16,7 +16,8 @@ help:
 	@printf "  make tests-install    Verify editable CLI installation in .tmp\n"
 	@printf "  make docker-build-renderer Build the Mermaid/PlantUML renderer image\n"
 	@printf "  make mcp-build        Prepare the MCP optional dependencies\n"
-	@printf "  make mcp-smoke        Run the repo-owned MCP smoke check\n"
+	@printf "  make mcp-smoke        Run the MCP smoke check and render one SVG through Docker\n"
+	@printf "  make mcp-stdio        Serve the MCP through the standard stdio launcher\n"
 	@printf "  make render-diagram INPUT=... OUTPUT=... Render one styled diagram through Docker\n"
 	@printf "  make render-examples  Render examples when mmdc/plantuml are installed\n"
 	@printf "  make render-gallery   Render README gallery through a compatibility profile\n"
@@ -52,7 +53,12 @@ mcp-init: mcp-build
 
 mcp-check: check
 
-mcp-smoke: tests-mcp
+mcp-smoke: mcp-build tests-mcp
+	@uv --directory "$(CURDIR)" run --extra mcp diavisuals --project "$(CURDIR)" render-diagram-text --text 'graph TD; A[Smoke] --> B[SVG]' --output ".cache/diavisuals/smoke/smoke.svg" --format svg --no-data >/dev/null
+	@printf '%s\n' '@startuml' 'Alice -> Bob : Smoke' '@enduml' | uv --directory "$(CURDIR)" run --extra mcp diavisuals --project "$(CURDIR)" render-diagram-text --output ".cache/diavisuals/smoke/plantuml-smoke.pdf" --format pdf --no-data >/dev/null
+
+mcp-stdio:
+	@uv --directory "$(CURDIR)" run --extra mcp diavisuals --project "$(PROJECT)" mcp serve
 
 render-diagram:
 	@test -n "$(INPUT)" || (echo "Usage: make render-diagram INPUT=<diagram> OUTPUT=<output>" >&2; exit 2)

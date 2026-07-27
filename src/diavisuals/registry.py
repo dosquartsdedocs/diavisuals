@@ -257,6 +257,23 @@ def shell_join(parts: list[str]) -> str:
     return " ".join(shlex.quote(part) for part in parts)
 
 
+def validate_rendered_artifact(output: pathlib.Path, output_format: str) -> dict[str, Any]:
+    if not output.is_file():
+        return {"ok": False, "path": str(output), "reason": "output file was not created"}
+    size = output.stat().st_size
+    if size <= 0:
+        return {"ok": False, "path": str(output), "bytes": size, "reason": "output file is empty"}
+
+    header = output.read_bytes()[:4096]
+    if output_format == "pdf" and not header.startswith(b"%PDF-"):
+        return {"ok": False, "path": str(output), "bytes": size, "reason": "output is not a PDF"}
+    if output_format == "png" and not header.startswith(b"\x89PNG\r\n\x1a\n"):
+        return {"ok": False, "path": str(output), "bytes": size, "reason": "output is not a PNG"}
+    if output_format == "svg" and b"<svg" not in header.lower():
+        return {"ok": False, "path": str(output), "bytes": size, "reason": "output is not an SVG"}
+    return {"ok": True, "path": str(output), "bytes": size, "format": output_format}
+
+
 def render_diagram(
     project_root: str | pathlib.Path,
     *,
@@ -375,7 +392,13 @@ def render_diagram(
     output.parent.mkdir(parents=True, exist_ok=True)
     styled.parent.mkdir(parents=True, exist_ok=True)
     completed = run(command, cwd=root, timeout=300)
-    payload.update({"image": image, "result": completed, "ok": completed["returncode"] == 0 and output.is_file()})
+    artifact_check = validate_rendered_artifact(output, output_format)
+    payload.update({
+        "image": image,
+        "result": completed,
+        "artifact_check": artifact_check,
+        "ok": completed["returncode"] == 0 and artifact_check["ok"],
+    })
     return payload
 
 
@@ -746,24 +769,30 @@ def update_factory(dry_run: bool = False) -> dict[str, Any]:
     }
 
 
-def client_config(project: str = "${workspaceFolder}", command: str = "diavisuals") -> dict[str, Any]:
+def mcp_stdio_command(project: str = "${workspaceFolder}") -> list[str]:
+    return ["make", "-C", str(repo_dir()), "mcp-stdio", f"PROJECT={project}"]
+
+
+def client_config(project: str = "${workspaceFolder}", command: str = "") -> dict[str, Any]:
+    server_command = [command, "--project", project, "mcp", "serve"] if command else mcp_stdio_command(project)
     return {
         "mcpServers": {
             "diavisuals": {
-                "command": command,
-                "args": ["--project", project, "mcp", "serve"],
+                "command": server_command[0],
+                "args": server_command[1:],
             }
         }
     }
 
 
-def vscode_client_config(project: str = "${workspaceFolder}", command: str = "diavisuals") -> dict[str, Any]:
+def vscode_client_config(project: str = "${workspaceFolder}", command: str = "") -> dict[str, Any]:
+    server_command = [command, "--project", project, "mcp", "serve"] if command else mcp_stdio_command(project)
     return {
         "servers": {
             "diavisuals": {
                 "type": "stdio",
-                "command": command,
-                "args": ["--project", project, "mcp", "serve"],
+                "command": server_command[0],
+                "args": server_command[1:],
             }
         }
     }
@@ -794,7 +823,7 @@ def factory_manifest() -> dict[str, Any]:
             "update": ["diavisuals", "update"],
             "install_codex_mcp": ["diavisuals", "install-codex-mcp"],
             "client_config": ["diavisuals", "mcp", "client-config"],
-            "serve": ["diavisuals", "mcp", "serve"],
+            "serve": ["make", "mcp-stdio"],
             "manifest": ["diavisuals", "factory-manifest"],
             "styles": ["diavisuals", "style-inventory"],
             "audit": ["diavisuals", "style-audit"],
@@ -804,6 +833,7 @@ def factory_manifest() -> dict[str, Any]:
         "mcp": {
             "server_name": "diavisuals",
             "transport": "stdio",
+            "command": mcp_stdio_command("${workspaceFolder}"),
             "resources": [
                 "diavisuals://agent-guide",
                 "diavisuals://styles",

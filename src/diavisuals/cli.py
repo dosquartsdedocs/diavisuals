@@ -165,15 +165,10 @@ def cmd_install_codex_mcp(args: argparse.Namespace) -> int:
         print_payload(payload)
         return 1
 
-    server_command = [
-        args.command,
-        "--project",
-        args.codex_project or ".",
-        "mcp",
-        "serve",
-    ]
+    server_command = client_config(project=args.codex_project or ".", command=args.command)["mcpServers"]["diavisuals"]
+    server_parts = [server_command["command"], *server_command.get("args", [])]
     remove_cmd = [codex_bin, "mcp", "remove", args.server_name]
-    add_cmd = [codex_bin, "mcp", "add", args.server_name, "--", *server_command]
+    add_cmd = [codex_bin, "mcp", "add", args.server_name, "--", *server_parts]
     payload: dict[str, Any] = {
         "ok": True,
         "server_name": args.server_name,
@@ -279,7 +274,7 @@ def build_parser() -> argparse.ArgumentParser:
     codex_parser = subcommands.add_parser("install-codex-mcp", help="Register this MCP server with Codex")
     codex_parser.add_argument("--server-name", default="diavisuals")
     codex_parser.add_argument("--codex-bin", default="codex")
-    codex_parser.add_argument("--command", default="diavisuals")
+    codex_parser.add_argument("--command", default="")
     codex_parser.add_argument("--project-root", dest="codex_project", help="Pin the server to a repository instead of Codex's current workspace")
     codex_parser.add_argument("--dry-run", action="store_true")
     codex_parser.set_defaults(func=cmd_install_codex_mcp)
@@ -291,7 +286,7 @@ def build_parser() -> argparse.ArgumentParser:
     client_parser = mcp_subcommands.add_parser("client-config", help="Print an MCP client configuration snippet")
     client_parser.add_argument("--format", choices=["generic", "vscode-workspace"], default="generic")
     client_parser.add_argument("--workspace-placeholder", default="${workspaceFolder}")
-    client_parser.add_argument("--command", default="diavisuals")
+    client_parser.add_argument("--command", default="")
     client_parser.set_defaults(func=cmd_mcp)
 
     return parser

@@ -14,6 +14,8 @@ RUN apt-get update \
         curl \
         default-jre-headless \
         graphviz \
+        libbatik-java \
+        libfop-java \
         make \
         nodejs \
         npm \
@@ -21,7 +23,7 @@ RUN apt-get update \
     && npm install -g "@mermaid-js/mermaid-cli@${MERMAID_CLI_VERSION}" \
     && mkdir -p /opt/plantuml \
     && curl -fL "https://github.com/plantuml/plantuml/releases/download/v${PLANTUML_VERSION}/plantuml-${PLANTUML_VERSION}.jar" -o /opt/plantuml/plantuml.jar \
-    && printf '#!/bin/sh\nexec java -Duser.home="${HOME:-/tmp}" -jar /opt/plantuml/plantuml.jar "$@"\n' > /usr/local/bin/plantuml \
+    && printf '#!/bin/sh\nexec java -Duser.home="${HOME:-/tmp}" -cp "/opt/plantuml/plantuml.jar:/usr/share/java/*" net.sourceforge.plantuml.Run "$@"\n' > /usr/local/bin/plantuml \
     && chmod +x /usr/local/bin/plantuml \
     && npm cache clean --force \
     && apt-get autoremove -y \
