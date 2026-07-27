@@ -12,6 +12,8 @@ from .registry import (
     factory_manifest as core_factory_manifest,
     json_dumps,
     release_status as core_release_status,
+    render_diagram as core_render_diagram,
+    render_diagram_text as core_render_diagram_text,
     style_audit as core_style_audit,
     repo_dir,
     style_inventory as core_style_inventory,
@@ -109,6 +111,56 @@ def run_server(project: pathlib.Path) -> None:
     ) -> dict[str, Any]:
         """Return commands for pinning diavisuals as a submodule in a consumer repo."""
         return core_submodule_plan(str(consumer_root), path=path, release=release, remote=remote)
+
+    @mcp.tool()
+    def render_diagram(
+        input_path: str,
+        output_path: str,
+        engine: str = "auto",
+        family: str = DEFAULT_FAMILY,
+        style: str = "",
+        profile: str = DEFAULT_COMPATIBILITY,
+        output_format: str = "svg",
+        dry_run: bool = False,
+    ) -> dict[str, Any]:
+        """Render one styled Mermaid or PlantUML diagram through the diavisuals Docker renderer."""
+        return core_render_diagram(
+            consumer_root,
+            input_path=input_path,
+            output_path=output_path,
+            engine=engine,
+            family=family,
+            style=style or None,
+            profile=profile,
+            output_format=output_format,
+            dry_run=dry_run,
+        )
+
+    @mcp.tool()
+    def render_diagram_text(
+        diagram_text: str,
+        engine: str = "auto",
+        family: str = DEFAULT_FAMILY,
+        style: str = "",
+        profile: str = DEFAULT_COMPATIBILITY,
+        output_format: str = "svg",
+        output_path: str = "",
+        include_data: bool = True,
+        dry_run: bool = False,
+    ) -> dict[str, Any]:
+        """Render Mermaid or PlantUML source text and return the generated image artifact."""
+        return core_render_diagram_text(
+            consumer_root,
+            diagram_text=diagram_text,
+            output_path=output_path or None,
+            engine=engine,
+            family=family,
+            style=style or None,
+            profile=profile,
+            output_format=output_format,
+            include_data=include_data,
+            dry_run=dry_run,
+        )
 
     @mcp.tool()
     def update(dry_run: bool = False) -> dict[str, Any]:

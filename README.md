@@ -2,7 +2,11 @@
 
 ![release](https://img.shields.io/badge/release-v0.1.2-blue) ![Mermaid CLI](https://img.shields.io/badge/Mermaid_CLI-11.4.2-ff3670) ![PlantUML](https://img.shields.io/badge/PlantUML-1.2026.1-2a5db0) ![family](https://img.shields.io/badge/family-benizar-2a5db0)
 
-`diavisuals` centralizes shared Mermaid and PlantUML visual styles for dosquartsdedocs projects. The goal is to stop copying one-off CSS and `skinparam` fragments into each paper, website, or slide deck, and to keep one tested contract for technical diagrams.
+`diavisuals` centralizes shared Mermaid and PlantUML visual styles and the
+Docker renderer used by dosquartsdedocs projects. The goal is to stop copying
+one-off CSS, `skinparam` fragments, Mermaid CLI, PlantUML, Chromium, and Java
+layers into each paper, website, or slide deck, and to keep one tested render
+contract for technical diagrams.
 
 The first complete family is `benizar`, extracted from the previous `my-slides-vault` work. The repository is prepared for additional families such as `tonidomo` or `urv`, following the `<family>-mermaid` and `<family>-plantuml` naming convention.
 
@@ -33,38 +37,29 @@ That split matters because a quadrant chart, a sequence diagram, and a treemap n
 
 ## Quick Use
 
-Consumers normally vendor the released assets into their own resource tree. For
-example, `my-slides-vault init` copies the package assets into
-`docs/slides/resources/diavisuals` and records the chosen release/profile in
-`docs/slides/slides.yml`.
-
-If a project already has a local copy at `resources/diavisuals`, prepare a
-styled Mermaid source with:
+Build the shared renderer image once:
 
 ```bash
-resources/diavisuals/tools/style-diagram-source.sh \
-  mermaid benizar \
+make mcp-build
+```
+
+Render a diagram source file from a consumer project:
+
+```bash
+diavisuals --project /path/to/project render-diagram \
+  --engine auto \
+  --family benizar \
+  --format svg \
   figures/pipeline.mmd \
-  .cache/figures/pipeline.styled.mmd
+  figures/pipeline.svg
 ```
 
-Render it:
+Agents can also send diagram source text directly and receive the generated
+artifact metadata plus inline SVG or base64 image data:
 
 ```bash
-mmdc \
-  -i .cache/figures/pipeline.styled.mmd \
-  -o figures/pipeline.svg \
-  -c resources/diavisuals/styles/mermaid/benizar-mermaid.json
-```
-
-For PlantUML:
-
-```bash
-resources/diavisuals/tools/style-diagram-source.sh \
-  plantuml benizar \
-  figures/architecture.puml \
-  .cache/figures/architecture.styled.puml
-plantuml -tsvg .cache/figures/architecture.styled.puml
+printf 'flowchart TD\n  A --> B\n' | \
+  diavisuals --project /path/to/project render-diagram-text --format svg
 ```
 
 See `docs/integration.md` for how `unaltrepaper`, `unaltraweb`, and `my-slides-vault` should consume the package, `docs/style-families.md` for the family contract, and `docs/style-contract.md` for the engine style contract.
@@ -76,13 +71,13 @@ the shared checkout:
 diavisuals submodule-plan --path docs/slides/resources/diavisuals
 ```
 
-## CLI And MCP Registry
+## CLI And MCP Renderer
 
-`diavisuals` can also run as a lightweight MCP registry. The MCP helps agents
-discover style families, compatibility profiles, releases, examples, and
-style audits. Normal document builds should still read pinned files from a
-vendored package copy or checkout; they should not depend on the MCP server at
-render time.
+`diavisuals` can run as a lightweight MCP server. The MCP helps agents discover
+style families, compatibility profiles, releases, examples, and style audits,
+and it is also the shared rendering engine for Mermaid and PlantUML diagrams.
+Consumer repositories should call this MCP/CLI instead of carrying Mermaid,
+PlantUML, Chromium, or Java dependencies themselves.
 
 ```bash
 diavisuals style-inventory
@@ -90,6 +85,8 @@ diavisuals style-audit
 diavisuals compatibility-status
 diavisuals check
 diavisuals release-status
+diavisuals render-diagram source.mmd output.svg
+diavisuals render-diagram-text --text 'flowchart TD; A-->B'
 diavisuals mcp client-config
 ```
 

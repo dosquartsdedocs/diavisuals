@@ -1,14 +1,20 @@
 # MCP Contract
 
-`diavisuals` exposes the shared visual style registry through a stdio MCP
-server. It is a catalog and validation layer over pinned files in this
-repository.
+`diavisuals` exposes the shared visual style registry and diagram renderer
+through a stdio MCP server. It is the catalog, validation layer, and Dockerized
+Mermaid/PlantUML rendering engine for agents working in consumer repositories.
 
 ## Runtime Rule
 
-Consumers should not require the MCP server to render documents. Builds should
-read pinned files from a vendored `diavisuals` package copy or checkout.
-Submodule use is optional and explicit.
+Consumers should declare `diavisuals` as an MCP dependency when they need
+Mermaid or PlantUML rendering. Document builds still own their local pipeline,
+but they should call this MCP/CLI for diagram rendering instead of carrying
+Mermaid CLI, PlantUML, Chromium, or Java dependencies themselves. Submodule use
+is optional and explicit for older compatibility paths.
+
+The default generated workspace path is `.cache/diavisuals`. File-rendering
+tools may also write to an explicit `output_path`, but that path must stay
+inside the consumer workspace passed as `${workspaceFolder}` / `--project`.
 
 ## Resources
 
@@ -31,6 +37,8 @@ Submodule use is optional and explicit.
 | `compatibility_status` | Inspect compatibility profiles. |
 | `release_status` | Inspect Git release tag status. |
 | `submodule_plan` | Return optional commands for pinning `diavisuals` as a submodule. |
+| `render_diagram` | Render one `.mmd`, `.mermaid`, `.puml`, `.plantuml`, or `.uml` file to SVG, PNG, or PDF. |
+| `render_diagram_text` | Render Mermaid or PlantUML source text and return the generated artifact path plus inline SVG or base64 image data. |
 | `update` | Update the factory checkout with a fast-forward pull. |
 | `factory_manifest` | Return the factory discovery manifest. |
 

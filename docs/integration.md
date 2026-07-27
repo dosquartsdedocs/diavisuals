@@ -1,81 +1,98 @@
 # Project Integration
 
-`diavisuals` is not a document build system. It is a style package plus small helpers for preparing diagram sources. Each consumer keeps its own pipeline and decides when to call `mmdc`, `plantuml`, Jekyll, Pandoc, or LaTeX.
+`diavisuals` is not a document build system. It is the shared style package and
+Docker renderer for Mermaid and PlantUML. Each consumer keeps its own document
+pipeline and decides when diagrams are needed, but the actual diagram styling
+and Mermaid/PlantUML execution should go through this MCP/CLI.
 
 ## Architecture Decision
 
-- `diavisuals` publishes tokens, presets, type overrides, examples, compatibility profiles, and rendered galleries.
-- `diavisuals` can transform a `.mmd` or `.puml` source into a styled source with `tools/style-diagram-source.sh`.
-- `unaltrepaper`, `unaltraweb`, `my-slides-vault`, and other projects render with their own tools.
-- Documentation repositories should not copy local CSS or `skinparam` fragments when the preset already lives here.
+- `diavisuals` publishes tokens, presets, type overrides, examples, compatibility profiles, rendered galleries, and a Docker renderer image.
+- `diavisuals` can render a `.mmd` or `.puml` source file into SVG, PNG, or PDF.
+- `diavisuals` can render raw diagram source text and return the generated artifact path plus inline SVG or base64 image data.
+- `unaltrepaper`, `unaltraweb`, `my-slides-vault`, and other projects keep their Make/Pandoc/Jekyll/LaTeX workflows, but call `diavisuals` for diagram rendering.
+- Documentation repositories should not copy local CSS, `skinparam` fragments, Mermaid CLI, PlantUML, Chromium, or Java layers when the renderer already lives here.
 
-This keeps `diavisuals` from knowing too much about LaTeX, Jekyll, or Beamer, while still giving consumers a simple contract: shared style, local rendering, declared compatibility profile.
+This keeps `diavisuals` from knowing too much about LaTeX, Jekyll, or Beamer,
+while still giving consumers a simple contract: shared style, shared renderer,
+declared compatibility profile.
 
-Consumers should pin a short `diavisuals` release tag such as `v0.1.2` and declare which compatibility profile they render, for example `mermaid-11.4.2-plantuml-1.2026.1`. The profile does not replace the local pipeline; it only states which engine versions and diagram types have been visually checked.
+Consumers should declare `diavisuals` under `mcp_dependencies` in
+`mcp-factory.yml`, pin a short `diavisuals` release tag such as `v0.1.2`, and
+declare which compatibility profile they render, for example
+`mermaid-11.4.2-plantuml-1.2026.1`.
 
 ## Recommended Installation
 
-For dosquartsdedocs projects, prefer a vendored package copy. The consumer
-factory should copy `styles/`, `compat/`, and `tokens/` from the installed
-`diavisuals` package or checkout into its own resource tree and record:
+For dosquartsdedocs projects, prefer a sibling `diavisuals` checkout or an
+installed `diavisuals` CLI/MCP. The consumer factory should record the render
+contract without copying the engines:
 
 ```yaml
 diavisuals:
-  path: resources/diavisuals
-  source: package
+  source: external
   release: v0.1.2
   compatibility: mermaid-11.4.2-plantuml-1.2026.1
 diagram_styles:
   family: benizar
 ```
 
-If a project already expects `res/styles/mermaid` and `res/styles/plantuml`, expose the assets with:
+Compatibility copies or submodules are still possible for older workspaces that
+expect local assets, but new consumers should declare the MCP dependency:
 
-```bash
-./resources/diavisuals/tools/install-to-project.sh . link
+```yaml
+mcp_dependencies:
+  - name: diavisuals
+    role: shared-diagram-renderer
+    required: true
+    install: true
+    build: true
+    init: true
+    remote: git@github.com:dosquartsdedocs/diavisuals.git
+    package: diavisuals
+    extras:
+      - mcp
+    suggested_path: ../diavisuals
 ```
 
-Use `copy` only when the project cannot use symlinks.
+When the factory manager cannot discover `diavisuals`, those fields let it show
+exact repair commands: `git clone ...`, `make -C ... mcp-build`, and
+`uv tool install 'diavisuals[mcp] @ git+ssh://...'`.
 
 Submodules remain an explicit opt-in for repositories that want Git to own the
-style checkout:
+style checkout for compatibility:
 
 ```bash
 diavisuals submodule-plan --path resources/diavisuals
 ```
 
-## Common Helper
+## Common Renderer
 
-For Mermaid, normally pass the family name:
+Render a Mermaid or PlantUML source file:
 
 ```bash
-resources/diavisuals/tools/style-diagram-source.sh \
-  mermaid benizar \
+diavisuals --project /path/to/consumer render-diagram \
+  --family benizar \
+  --format svg \
   assets/diagrams/pipeline.mmd \
-  .cache/diagrams/pipeline.styled.mmd
-
-mmdc \
-  -i .cache/diagrams/pipeline.styled.mmd \
-  -o assets/diagrams/pipeline.mmd.svg \
-  -c resources/diavisuals/styles/mermaid/benizar-mermaid.json
+  assets/diagrams/pipeline.svg
 ```
 
-For PlantUML:
+Render raw text from an agent or script:
 
 ```bash
-resources/diavisuals/tools/style-diagram-source.sh \
-  plantuml benizar \
-  figures/architecture.puml \
-  .cache/diagrams/architecture.styled.puml
-
-plantuml -tsvg .cache/diagrams/architecture.styled.puml
+printf '@startuml\nAlice -> Bob: hello\n@enduml\n' | \
+  diavisuals --project /path/to/consumer render-diagram-text --format png
 ```
 
-The helper resolves a family (`benizar`) to the engine-specific style name (`benizar-mermaid` or `benizar-plantuml`), detects the diagram type, and applies the matching override when it exists.
+The renderer resolves a family (`benizar`) to the engine-specific style name
+(`benizar-mermaid` or `benizar-plantuml`), detects the diagram type when
+possible, applies the matching override when it exists, and writes the result
+inside the consumer project.
 
 ## my-slides-vault
 
-`my-slides-vault` is the reference consumer for the `v0.1.2` release target and its modern profile `mermaid-11.4.2-plantuml-1.2026.1`. It already implements the style contract in Lua filters:
+`my-slides-vault` is the reference consumer for the `v0.1.2` release target and its modern profile `mermaid-11.4.2-plantuml-1.2026.1`. It records the style contract in `docs/slides/slides.yml`:
 
 ```yaml
 diagram_styles:
@@ -85,32 +102,34 @@ diagram_styles:
 
 Migration can happen in two steps:
 
-1. Run `my-slides-vault init` to vendor `diavisuals` under `docs/slides/resources/diavisuals`.
+1. Declare `diavisuals` in `mcp_dependencies` and build/install it through the factory manager.
 2. Keep `diagram_styles.family: benizar` unless the deck intentionally chooses another family.
 
-The Lua filters should stay in `my-slides-vault`; they are part of the slide build pipeline.
+The Lua filters should stay in `my-slides-vault`; they are part of the slide
+build pipeline. They should consume pre-rendered diagram artifacts generated by
+`diavisuals`, not run Mermaid or PlantUML themselves.
 
 ## unaltrepaper
 
-`unaltrepaper` owns the paper support layer: Docker, Makefile targets, figures, submission bundles, diffs, and journal templates. `diavisuals` should enter as a shared style resource, not as duplicated code inside each paper.
+`unaltrepaper` owns the paper support layer: Docker, Makefile targets, figures, submission bundles, diffs, and journal templates. `diavisuals` should enter as a shared renderer dependency, not as duplicated engines inside each paper.
 
 Recommended paper layout:
 
 ```text
 resources/unaltrepaper/       # paper factory
-resources/diavisuals/         # vendored shared style assets
 figures/                      # paper SVG, Mermaid, and PlantUML sources
 ```
 
 Recommended build behavior in `unaltrepaper/scripts/build-figures.sh`:
 
-- Accept `DIAVISUALS_DIR`, defaulting to `/workspace/resources/diavisuals` when present.
+- Accept `DIAVISUALS_DIR` or `DIAVISUALS_COMMAND` for explicit renderer resolution.
 - Accept `DIAGRAM_STYLE_FAMILY`, defaulting to `benizar`.
 - Accept `MERMAID_STYLE` and `PLANTUML_STYLE` as optional per-engine overrides.
-- Before `mmdc`, generate a `.cache/*.styled.mmd` file with `style-diagram-source.sh` and use the matching JSON preset with `--configFile`.
-- Before `plantuml`, generate a `.cache/*.styled.puml` file with the same helper.
+- Call `diavisuals render-diagram` for `.mmd`, `.mermaid`, `.puml`, `.plantuml`, and `.uml` sources.
+- Keep SVG conversion, submission exports, and journal-specific layout decisions in `unaltrepaper`.
 
-This lets `unaltrepaperalpap` demonstrate diagrams while keeping build logic in `unaltrepaper` and style logic in `diavisuals`.
+This lets paper projects demonstrate diagrams while keeping paper logic in
+`unaltrepaper` and rendering logic in `diavisuals`.
 
 ## unaltraweb
 
@@ -123,7 +142,9 @@ assets/diagrams/manual-flow.mmd          # editable source
 assets/diagrams/manual-flow.mmd.svg      # generated SVG with diavisuals
 ```
 
-The core or template of `unaltraweb` should add a target such as `make diagrams` that runs `style-diagram-source.sh`, then calls `mmdc` or `plantuml` with the profile supported by that web project.
+The core or template of `unaltraweb` should add a target such as `make diagrams`
+that calls `diavisuals render-diagram` with the profile supported by that web
+project.
 
 Inline ```mermaid``` blocks rendered in the browser can keep using the current dynamic website theme. `diavisuals` should apply first to versioned diagram sources such as `.mmd` and `.puml`, because those are reproducible and fit the existing plugin.
 
@@ -131,7 +152,7 @@ Inline ```mermaid``` blocks rendered in the browser can keep using the current d
 
 Any project can consume the repository in two ways:
 
-- Directly, by calling `style-diagram-source.sh` and the relevant render engine.
-- By copying or symlinking `styles/` to the location where its pipeline already expects presets.
+- Directly, by calling `diavisuals render-diagram` or `diavisuals render-diagram-text`.
+- As a compatibility bridge, by copying or symlinking `styles/` to the location where its pipeline already expects presets.
 
-The rule is always the same: centralized style, local rendering, explicit compatibility profile.
+The rule is always the same: centralized style, centralized rendering, explicit compatibility profile.

@@ -1,10 +1,13 @@
 from __future__ import annotations
 
 import csv
+import base64
+import hashlib
 import json
 import os
 import pathlib
 import re
+import shlex
 import shutil
 import subprocess
 from typing import Any
@@ -15,6 +18,35 @@ DEFAULT_COMPATIBILITY = "mermaid-11.4.2-plantuml-1.2026.1"
 DEFAULT_FAMILY = "benizar"
 DEFAULT_REMOTE = "git@github.com:dosquartsdedocs/diavisuals.git"
 HEX_COLOR_RE = re.compile(r"#[0-9A-Fa-f]{6}\b")
+MERMAID_TEXT_STARTS = {
+    "architecture-beta",
+    "block",
+    "classdiagram",
+    "erdiagram",
+    "flowchart",
+    "gantt",
+    "gitgraph",
+    "graph",
+    "journey",
+    "kanban",
+    "mindmap",
+    "packet-beta",
+    "pie",
+    "quadrantchart",
+    "requirementdiagram",
+    "sankey-beta",
+    "sequencediagram",
+    "statediagram",
+    "statediagram-v2",
+    "timeline",
+    "treemap-beta",
+    "xychart-beta",
+}
+OUTPUT_MIME_TYPES = {
+    "svg": "image/svg+xml",
+    "png": "image/png",
+    "pdf": "application/pdf",
+}
 
 
 def repo_dir() -> pathlib.Path:
@@ -88,6 +120,352 @@ def parse_env(path: pathlib.Path) -> dict[str, str]:
     return values
 
 
+def renderer_profile(profile: str = DEFAULT_COMPATIBILITY) -> dict[str, Any]:
+    compat = compatibility_status(profile)
+    values = compat.get("values", {}) if isinstance(compat.get("values"), dict) else {}
+    image = str(values.get("DIAVISUALS_RENDER_IMAGE") or "").strip()
+    dockerfile = str(values.get("DIAVISUALS_RENDER_DOCKERFILE") or "").strip()
+    issues: list[str] = []
+    if not compat.get("ok"):
+        issues.append(f"missing compatibility profile: {profile}")
+    if not image:
+        issues.append("compatibility profile does not define DIAVISUALS_RENDER_IMAGE")
+    if not dockerfile:
+        issues.append("compatibility profile does not define DIAVISUALS_RENDER_DOCKERFILE")
+
+    dockerfile_path = repo_dir() / dockerfile if dockerfile else None
+    if dockerfile_path is not None and not dockerfile_path.is_file():
+        issues.append(f"renderer Dockerfile not found: {dockerfile}")
+
+    return {
+        "ok": not issues,
+        "profile": str(compat.get("requested") or pathlib.Path(profile).stem),
+        "image": image,
+        "dockerfile": dockerfile,
+        "dockerfile_path": str(dockerfile_path) if dockerfile_path else None,
+        "values": values,
+        "issues": issues,
+    }
+
+
+def build_renderer_image(profile: str = DEFAULT_COMPATIBILITY, *, dry_run: bool = False) -> dict[str, Any]:
+    root = repo_dir()
+    renderer = renderer_profile(profile)
+    if not renderer["ok"]:
+        return {"ok": False, "renderer": renderer}
+
+    values = renderer["values"]
+    command = [
+        "docker",
+        "build",
+        "-f",
+        renderer["dockerfile"],
+        "--build-arg",
+        f"MERMAID_CLI_VERSION={values.get('MERMAID_CLI_VERSION', '')}",
+        "--build-arg",
+        f"PLANTUML_VERSION={values.get('PLANTUML_VERSION', '')}",
+        "-t",
+        renderer["image"],
+        ".",
+    ]
+    if dry_run:
+        return {"ok": True, "dry_run": True, "renderer": renderer, "command": command}
+    result = run(command, cwd=root, timeout=1800)
+    return {"ok": result["returncode"] == 0, "renderer": renderer, "result": result}
+
+
+def ensure_renderer_image(profile: str = DEFAULT_COMPATIBILITY) -> dict[str, Any]:
+    renderer = renderer_profile(profile)
+    if not renderer["ok"]:
+        return {"ok": False, "renderer": renderer}
+    inspect = run(["docker", "image", "inspect", renderer["image"]], cwd=repo_dir(), timeout=60)
+    if inspect["returncode"] == 0:
+        return {"ok": True, "renderer": renderer, "inspect": inspect, "built": False}
+    build = build_renderer_image(profile)
+    return {"ok": build.get("ok", False), "renderer": renderer, "inspect": inspect, "build": build, "built": True}
+
+
+def path_within(path: pathlib.Path, root: pathlib.Path) -> bool:
+    try:
+        path.relative_to(root)
+        return True
+    except ValueError:
+        return False
+
+
+def resolve_project_path(root: pathlib.Path, raw: str, *, must_exist: bool = False) -> pathlib.Path:
+    candidate = pathlib.Path(raw).expanduser()
+    if not candidate.is_absolute():
+        candidate = root / candidate
+    resolved = candidate.resolve()
+    if not path_within(resolved, root):
+        raise ValueError(f"path is outside the project root: {raw}")
+    if must_exist and not resolved.is_file():
+        raise FileNotFoundError(f"diagram source not found: {raw}")
+    return resolved
+
+
+def diagram_engine(input_path: pathlib.Path, requested: str = "auto") -> str:
+    requested = (requested or "auto").strip().lower()
+    if requested in {"mermaid", "plantuml"}:
+        return requested
+    suffix = input_path.suffix.lower()
+    if suffix in {".mmd", ".mermaid"}:
+        return "mermaid"
+    if suffix in {".puml", ".plantuml", ".uml"}:
+        return "plantuml"
+    raise ValueError("engine must be mermaid or plantuml for sources without a known extension")
+
+
+def diagram_engine_from_text(diagram_text: str, requested: str = "auto") -> str:
+    requested = (requested or "auto").strip().lower()
+    if requested in {"mermaid", "plantuml"}:
+        return requested
+
+    lines = [line.strip() for line in diagram_text.splitlines()]
+    significant = [line for line in lines if line and not line.startswith(("%", "%%", "'", "//"))]
+    first = significant[0].lower() if significant else ""
+    if first.startswith("@start"):
+        return "plantuml"
+    if first.split(None, 1)[0] in MERMAID_TEXT_STARTS:
+        return "mermaid"
+    raise ValueError("engine must be mermaid or plantuml when diagram text cannot be inferred")
+
+
+def resolve_style_name(engine: str, style: str) -> str:
+    root = repo_dir()
+    if engine == "mermaid":
+        candidates = [style, f"{style.removesuffix('-mermaid')}-mermaid"]
+        for candidate in candidates:
+            if (root / "styles" / "mermaid" / f"{candidate}.json").is_file():
+                return candidate
+    elif engine == "plantuml":
+        candidates = [style, f"{style.removesuffix('-plantuml')}-plantuml"]
+        for candidate in candidates:
+            if (root / "styles" / "plantuml" / f"{candidate}.puml").is_file():
+                return candidate
+    else:
+        raise ValueError("engine must be mermaid or plantuml")
+    raise FileNotFoundError(f"unknown {engine} style or family: {style}")
+
+
+def container_path(path: pathlib.Path, root: pathlib.Path) -> str:
+    return "/workspace/" + path.relative_to(root).as_posix()
+
+
+def shell_join(parts: list[str]) -> str:
+    return " ".join(shlex.quote(part) for part in parts)
+
+
+def render_diagram(
+    project_root: str | pathlib.Path,
+    *,
+    input_path: str,
+    output_path: str,
+    engine: str = "auto",
+    family: str = DEFAULT_FAMILY,
+    style: str | None = None,
+    profile: str = DEFAULT_COMPATIBILITY,
+    output_format: str = "svg",
+    dry_run: bool = False,
+) -> dict[str, Any]:
+    root = pathlib.Path(project_root).expanduser().resolve()
+    source = resolve_project_path(root, input_path, must_exist=True)
+    output = resolve_project_path(root, output_path)
+    resolved_engine = diagram_engine(source, engine)
+    output_format = (output_format or output.suffix.lstrip(".") or "svg").strip().lower()
+    if output_format not in {"svg", "png", "pdf"}:
+        raise ValueError("output_format must be svg, png, or pdf")
+
+    renderer = renderer_profile(profile)
+    if not renderer["ok"]:
+        return {"ok": False, "renderer": renderer}
+
+    style_query = (style or "").strip() or family
+    style_name = resolve_style_name(resolved_engine, style_query)
+    cache_suffix = ".mmd" if resolved_engine == "mermaid" else ".puml"
+    styled = root / ".cache" / "diavisuals" / resolved_engine / f"{output.stem}{cache_suffix}"
+    puppeteer = root / ".cache" / "diavisuals" / "puppeteer.json"
+    style_source = [
+        "/diavisuals/tools/style-diagram-source.sh",
+        resolved_engine,
+        style_name,
+        container_path(source, root),
+        container_path(styled, root),
+    ]
+    mkdirs = ["mkdir", "-p", container_path(output.parent, root), container_path(styled.parent, root), container_path(puppeteer.parent, root)]
+    if resolved_engine == "mermaid":
+        mermaid_config = f"/diavisuals/styles/mermaid/{style_name}.json"
+        script = " && ".join(
+            [
+                shell_join(mkdirs),
+                "printf '%s\\n' '{\"args\":[\"--no-sandbox\",\"--disable-setuid-sandbox\",\"--disable-dev-shm-usage\"]}' > "
+                + shlex.quote(container_path(puppeteer, root)),
+                shell_join(style_source),
+                shell_join(
+                    [
+                        "mmdc",
+                        "-i",
+                        container_path(styled, root),
+                        "-o",
+                        container_path(output, root),
+                        "-c",
+                        mermaid_config,
+                        "-p",
+                        container_path(puppeteer, root),
+                    ]
+                ),
+            ]
+        )
+    else:
+        expected = output.parent / f"{styled.stem}.{output_format}"
+        script = " && ".join(
+            [
+                shell_join(mkdirs),
+                shell_join(style_source),
+                shell_join(["plantuml", f"-t{output_format}", "-o", container_path(output.parent, root), container_path(styled, root)]),
+                f"test -f {shlex.quote(container_path(expected, root))}",
+                f"if [ {shlex.quote(container_path(expected, root))} != {shlex.quote(container_path(output, root))} ]; then mv {shlex.quote(container_path(expected, root))} {shlex.quote(container_path(output, root))}; fi",
+            ]
+        )
+
+    uid_gid = f"{os.getuid()}:{os.getgid()}" if hasattr(os, "getuid") and hasattr(os, "getgid") else "1000:1000"
+    command = [
+        "docker",
+        "run",
+        "--rm",
+        "--user",
+        uid_gid,
+        "-e",
+        "HOME=/tmp",
+        "-e",
+        "JAVA_TOOL_OPTIONS=-Duser.home=/tmp",
+        "-v",
+        f"{root}:/workspace",
+        "-v",
+        f"{repo_dir()}:/diavisuals:ro",
+        "-w",
+        "/workspace",
+        renderer["image"],
+        "bash",
+        "-lc",
+        script,
+    ]
+    payload: dict[str, Any] = {
+        "ok": True,
+        "project": str(root),
+        "engine": resolved_engine,
+        "family": family,
+        "style": style_name,
+        "style_requested": style_query,
+        "profile": profile.removesuffix(".env"),
+        "input": rel(source, root),
+        "output": rel(output, root),
+        "styled_source": rel(styled, root),
+        "renderer": renderer,
+        "command": command,
+    }
+    if dry_run:
+        payload["dry_run"] = True
+        return payload
+
+    image = ensure_renderer_image(profile)
+    if not image.get("ok"):
+        return {**payload, "ok": False, "image": image}
+    output.parent.mkdir(parents=True, exist_ok=True)
+    styled.parent.mkdir(parents=True, exist_ok=True)
+    completed = run(command, cwd=root, timeout=300)
+    payload.update({"image": image, "result": completed, "ok": completed["returncode"] == 0 and output.is_file()})
+    return payload
+
+
+def diagram_artifact_payload(output: pathlib.Path, root: pathlib.Path, output_format: str, *, include_data: bool) -> dict[str, Any]:
+    payload: dict[str, Any] = {
+        "path": rel(output, root),
+        "mime_type": OUTPUT_MIME_TYPES.get(output_format, "application/octet-stream"),
+        "format": output_format,
+        "exists": output.is_file(),
+    }
+    if not output.is_file():
+        return payload
+
+    data = output.read_bytes()
+    payload["bytes"] = len(data)
+    if not include_data:
+        return payload
+    if output_format == "svg":
+        payload["svg"] = data.decode("utf-8", errors="replace")
+    else:
+        payload["data_base64"] = base64.b64encode(data).decode("ascii")
+    return payload
+
+
+def render_diagram_text(
+    project_root: str | pathlib.Path,
+    *,
+    diagram_text: str,
+    output_path: str | None = None,
+    engine: str = "auto",
+    family: str = DEFAULT_FAMILY,
+    style: str | None = None,
+    profile: str = DEFAULT_COMPATIBILITY,
+    output_format: str = "svg",
+    include_data: bool = True,
+    dry_run: bool = False,
+) -> dict[str, Any]:
+    root = pathlib.Path(project_root).expanduser().resolve()
+    output_format = (output_format or "svg").strip().lower()
+    if output_format not in OUTPUT_MIME_TYPES:
+        raise ValueError("output_format must be svg, png, or pdf")
+    resolved_engine = diagram_engine_from_text(diagram_text, engine)
+    source_suffix = ".mmd" if resolved_engine == "mermaid" else ".puml"
+    digest_values = {
+        "engine": resolved_engine,
+        "family": family,
+        "style": style or "",
+        "profile": profile,
+        "output_format": output_format,
+        "diagram_text": diagram_text,
+    }
+    digest = hashlib.sha256(json.dumps(digest_values, sort_keys=True).encode("utf-8")).hexdigest()[:16]
+    source = root / ".cache" / "diavisuals" / "inline" / resolved_engine / f"{digest}{source_suffix}"
+    output = (
+        resolve_project_path(root, output_path)
+        if output_path
+        else root / ".cache" / "diavisuals" / "outputs" / resolved_engine / f"{digest}.{output_format}"
+    )
+
+    source.parent.mkdir(parents=True, exist_ok=True)
+    source.write_text(diagram_text.rstrip() + "\n", encoding="utf-8")
+
+    rendered = render_diagram(
+        root,
+        input_path=rel(source, root),
+        output_path=rel(output, root),
+        engine=resolved_engine,
+        family=family,
+        style=style,
+        profile=profile,
+        output_format=output_format,
+        dry_run=dry_run,
+    )
+    payload = {
+        **rendered,
+        "inline": True,
+        "input_text_sha256": hashlib.sha256(diagram_text.encode("utf-8")).hexdigest(),
+        "input_source": rel(source, root),
+        "artifact": diagram_artifact_payload(output, root, output_format, include_data=include_data)
+        if not dry_run
+        else {
+            "path": rel(output, root),
+            "mime_type": OUTPUT_MIME_TYPES[output_format],
+            "format": output_format,
+            "exists": False,
+        },
+    }
+    return payload
+
+
 def style_family_item(root: pathlib.Path, family: str) -> dict[str, Any]:
     mermaid_name = f"{family}-mermaid"
     plantuml_name = f"{family}-plantuml"
@@ -139,7 +517,8 @@ def style_inventory() -> dict[str, Any]:
 def compatibility_status(profile: str = DEFAULT_COMPATIBILITY) -> dict[str, Any]:
     root = repo_dir()
     compat_root = root / "compat"
-    requested = profile.removesuffix(".env")
+    profile_path = pathlib.Path(profile)
+    requested = profile_path.stem if profile_path.suffix == ".env" else profile_path.name
     profile_file = compat_root / f"{requested}.env"
     profiles = []
     for path in sorted(compat_root.glob("*.env")):
@@ -397,14 +776,21 @@ def factory_manifest() -> dict[str, Any]:
         "name": "diavisuals",
         "kind": "codex-mcp-factory",
         "version": "0.1.2",
+        "description": "Shared diagram style registry and Docker renderer for Mermaid and PlantUML.",
         "factory": str(root),
         "git_head": git_head(root),
         "workspace_rule": {
-            "consumer_root": "vendored-style-package",
+            "consumer_root": ".",
+            "source_paths": [],
+            "generated_paths": [".cache/diavisuals"],
+            "init_creates": [".cache/diavisuals"],
             "allowed_external_writes": [],
         },
         "commands": {
+            "build": ["make", "mcp-build"],
+            "init": ["make", "mcp-init"],
             "check": ["diavisuals", "check"],
+            "smoke": ["make", "mcp-smoke"],
             "update": ["diavisuals", "update"],
             "install_codex_mcp": ["diavisuals", "install-codex-mcp"],
             "client_config": ["diavisuals", "mcp", "client-config"],
@@ -412,6 +798,8 @@ def factory_manifest() -> dict[str, Any]:
             "manifest": ["diavisuals", "factory-manifest"],
             "styles": ["diavisuals", "style-inventory"],
             "audit": ["diavisuals", "style-audit"],
+            "render": ["diavisuals", "render-diagram"],
+            "render_text": ["diavisuals", "render-diagram-text"],
         },
         "mcp": {
             "server_name": "diavisuals",
@@ -431,6 +819,8 @@ def factory_manifest() -> dict[str, Any]:
                 "compatibility_status",
                 "release_status",
                 "submodule_plan",
+                "render_diagram",
+                "render_diagram_text",
                 "update",
                 "factory_manifest",
             ],

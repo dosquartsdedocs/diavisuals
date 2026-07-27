@@ -13,6 +13,7 @@ from .registry import (
     DEFAULT_COMPATIBILITY,
     DEFAULT_FAMILY,
     DEFAULT_RELEASE,
+    build_renderer_image,
     check_styles,
     client_config,
     compatibility_status,
@@ -20,6 +21,8 @@ from .registry import (
     install_check,
     json_dumps,
     release_status,
+    render_diagram,
+    render_diagram_text,
     style_audit,
     style_inventory,
     submodule_plan,
@@ -86,6 +89,51 @@ def cmd_factory_manifest(args: argparse.Namespace) -> int:
 
 def cmd_install_check(args: argparse.Namespace) -> int:
     payload = install_check(args.command)
+    print_payload(payload)
+    return 0 if payload.get("ok") else 1
+
+
+def cmd_build_renderer(args: argparse.Namespace) -> int:
+    payload = build_renderer_image(args.profile, dry_run=args.dry_run)
+    print_payload(payload)
+    return 0 if payload.get("ok") else 1
+
+
+def cmd_render_diagram(args: argparse.Namespace) -> int:
+    payload = render_diagram(
+        args.project,
+        input_path=args.input,
+        output_path=args.output,
+        engine=args.engine,
+        family=args.family,
+        style=args.style,
+        profile=args.profile,
+        output_format=args.output_format,
+        dry_run=args.dry_run,
+    )
+    print_payload(payload)
+    return 0 if payload.get("ok") else 1
+
+
+def cmd_render_diagram_text(args: argparse.Namespace) -> int:
+    if args.text_file:
+        diagram_text = pathlib.Path(args.text_file).expanduser().read_text(encoding="utf-8")
+    elif args.text:
+        diagram_text = args.text
+    else:
+        diagram_text = sys.stdin.read()
+    payload = render_diagram_text(
+        args.project,
+        diagram_text=diagram_text,
+        output_path=args.output,
+        engine=args.engine,
+        family=args.family,
+        style=args.style,
+        profile=args.profile,
+        output_format=args.output_format,
+        include_data=not args.no_data,
+        dry_run=args.dry_run,
+    )
     print_payload(payload)
     return 0 if payload.get("ok") else 1
 
@@ -198,6 +246,35 @@ def build_parser() -> argparse.ArgumentParser:
     install_check_parser = subcommands.add_parser("install-check", help="Check whether the CLI is installed as an executable tool")
     install_check_parser.add_argument("--command", default="diavisuals")
     install_check_parser.set_defaults(func=cmd_install_check)
+
+    renderer_parser = subcommands.add_parser("build-renderer", help="Build the Docker renderer image for Mermaid and PlantUML")
+    renderer_parser.add_argument("--profile", default=DEFAULT_COMPATIBILITY)
+    renderer_parser.add_argument("--dry-run", action="store_true")
+    renderer_parser.set_defaults(func=cmd_build_renderer)
+
+    render_parser = subcommands.add_parser("render-diagram", help="Render one styled Mermaid or PlantUML diagram through Docker")
+    render_parser.add_argument("input")
+    render_parser.add_argument("output")
+    render_parser.add_argument("--engine", choices=["auto", "mermaid", "plantuml"], default="auto")
+    render_parser.add_argument("--family", default=DEFAULT_FAMILY)
+    render_parser.add_argument("--style", help="Engine-specific style name or family override")
+    render_parser.add_argument("--profile", default=DEFAULT_COMPATIBILITY)
+    render_parser.add_argument("--format", dest="output_format", default="svg")
+    render_parser.add_argument("--dry-run", action="store_true")
+    render_parser.set_defaults(func=cmd_render_diagram)
+
+    render_text_parser = subcommands.add_parser("render-diagram-text", help="Render diagram source text through Docker")
+    render_text_parser.add_argument("--text", help="Diagram source text; stdin is used when omitted")
+    render_text_parser.add_argument("--text-file", help="Read diagram source text from a host file")
+    render_text_parser.add_argument("--output", help="Output path inside the project; defaults to .cache/diavisuals/outputs")
+    render_text_parser.add_argument("--engine", choices=["auto", "mermaid", "plantuml"], default="auto")
+    render_text_parser.add_argument("--family", default=DEFAULT_FAMILY)
+    render_text_parser.add_argument("--style", help="Engine-specific style name or family override")
+    render_text_parser.add_argument("--profile", default=DEFAULT_COMPATIBILITY)
+    render_text_parser.add_argument("--format", dest="output_format", choices=["svg", "png", "pdf"], default="svg")
+    render_text_parser.add_argument("--no-data", action="store_true", help="Return only the artifact path and metadata")
+    render_text_parser.add_argument("--dry-run", action="store_true")
+    render_text_parser.set_defaults(func=cmd_render_diagram_text)
 
     codex_parser = subcommands.add_parser("install-codex-mcp", help="Register this MCP server with Codex")
     codex_parser.add_argument("--server-name", default="diavisuals")

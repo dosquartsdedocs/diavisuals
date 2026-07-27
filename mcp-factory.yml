@@ -2,9 +2,14 @@
 name: diavisuals
 kind: codex-mcp-factory
 version: 0.1.2
-description: Shared diagram visual style registry for Mermaid and PlantUML.
+description: Shared diagram style registry and Docker renderer for Mermaid and PlantUML.
 workspace_rule:
-  consumer_root: vendored-style-package
+  consumer_root: .
+  source_paths: []
+  generated_paths:
+    - .cache/diavisuals
+  init_creates:
+    - .cache/diavisuals
   allowed_external_writes: []
 runtime:
   kind: python
@@ -23,6 +28,9 @@ commands:
   build:
     - make
     - mcp-build
+  init:
+    - make
+    - mcp-init
   check:
     - make
     - mcp-check
@@ -52,12 +60,18 @@ commands:
   audit:
     - diavisuals
     - style-audit
+  render:
+    - diavisuals
+    - render-diagram
+  render_text:
+    - diavisuals
+    - render-diagram-text
 discovery:
   suggested_scan_roots:
     - ~/git
   notes:
     - ContExt can scan sibling Git repositories for mcp-factory.yml.
-    - Builds should consume pinned files, not depend on this MCP at render time.
+    - Consumers should declare this factory as an MCP dependency instead of copying Mermaid or PlantUML render engines.
 mcp:
   server_name: diavisuals
   transport: stdio
@@ -75,6 +89,8 @@ mcp:
     - compatibility_status
     - release_status
     - submodule_plan
+    - render_diagram
+    - render_diagram_text
     - update
 release:
   default: v0.1.2
