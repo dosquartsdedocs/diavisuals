@@ -155,9 +155,14 @@ def build_renderer_image(profile: str = DEFAULT_COMPATIBILITY, *, dry_run: bool 
         return {"ok": False, "renderer": renderer}
 
     values = renderer["values"]
+    build_network = str(values.get("DIAVISUALS_RENDER_BUILD_NETWORK") or "").strip()
     command = [
         "docker",
         "build",
+    ]
+    if build_network:
+        command.extend(["--network", build_network])
+    command.extend([
         "-f",
         renderer["dockerfile"],
         "--build-arg",
@@ -167,7 +172,7 @@ def build_renderer_image(profile: str = DEFAULT_COMPATIBILITY, *, dry_run: bool 
         "-t",
         renderer["image"],
         ".",
-    ]
+    ])
     if dry_run:
         return {"ok": True, "dry_run": True, "renderer": renderer, "command": command}
     result = run(command, cwd=root, timeout=1800)
@@ -883,8 +888,8 @@ def install_check(command: str = "diavisuals") -> dict[str, Any]:
         "version_result": result,
         "mcp_dependency": mcp_dependency,
         "install_hints": [
-            "uv tool install --editable .",
-            "uv tool install --editable '.[mcp]'",
+            "python3 -m venv .cache/diavisuals/mcp-venv",
+            ".cache/diavisuals/mcp-venv/bin/python -m pip install --editable '.[mcp]'",
         ],
     }
 

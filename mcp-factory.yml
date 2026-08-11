@@ -13,7 +13,7 @@ workspace_rule:
   allowed_external_writes: []
 runtime:
   kind: python
-  package_manager: uv
+  package_manager: pip
   package: diavisuals
   module: diavisuals
 transport:

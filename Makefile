@@ -1,12 +1,17 @@
 SHELL := /usr/bin/env bash
+PYTHON ?= python3
 OUT_DIR ?= dist/examples
 COMPAT_PROFILE ?= compat/mermaid-11.4.2-plantuml-1.2026.1.env
 PROJECT ?= .
 ENGINE ?= auto
 FAMILY ?= benizar
 FORMAT ?= svg
+MCP_VENV ?= .cache/diavisuals/mcp-venv
+MCP_ENV_STAMP := $(MCP_VENV)/.diavisuals-mcp-installed
+MCP_PYTHON := $(MCP_VENV)/bin/python
+MCP_CLI := $(MCP_VENV)/bin/diavisuals
 
-.PHONY: help check tests test tests-mcp tests-install docker-build-renderer mcp-build mcp-init mcp-check mcp-smoke mcp-stdio render-diagram render-examples render-gallery render-gallery-local clean
+.PHONY: help check tests test tests-mcp tests-install mcp-env docker-build-renderer docker-ensure-renderer mcp-build mcp-init mcp-check mcp-smoke mcp-stdio render-diagram render-examples render-gallery render-gallery-local clean
 
 help:
 	@printf "Targets:\n"
@@ -14,7 +19,9 @@ help:
 	@printf "  make tests            Run Python registry tests and shell checks\n"
 	@printf "  make tests-mcp        Run MCP stdio smoke test with optional dependencies\n"
 	@printf "  make tests-install    Verify editable CLI installation in .tmp\n"
+	@printf "  make mcp-env          Prepare the local MCP Python environment\n"
 	@printf "  make docker-build-renderer Build the Mermaid/PlantUML renderer image\n"
+	@printf "  make docker-ensure-renderer Ensure the renderer image exists\n"
 	@printf "  make mcp-build        Prepare the MCP optional dependencies\n"
 	@printf "  make mcp-smoke        Run the MCP smoke check and render one SVG through Docker\n"
 	@printf "  make mcp-stdio        Serve the MCP through the standard stdio launcher\n"
@@ -27,38 +34,52 @@ check:
 	@tools/check-style-files.sh
 
 tests: check
-	@PYTHONPATH=src python3 -m py_compile src/diavisuals/__init__.py src/diavisuals/registry.py src/diavisuals/cli.py src/diavisuals/mcp_server.py
-	@PYTHONPATH=src python3 -m unittest discover -s tests
+	@PYTHONPATH=src $(PYTHON) -m py_compile src/diavisuals/__init__.py src/diavisuals/registry.py src/diavisuals/cli.py src/diavisuals/mcp_server.py
+	@PYTHONPATH=src $(PYTHON) -m unittest discover -s tests
 
 test: tests
 
-tests-mcp:
-	@DIAVISUALS_MCP_SMOKE=1 uv run --extra mcp python -m unittest discover -s tests
+tests-mcp: mcp-env
+	@DIAVISUALS_MCP_SMOKE=1 "$(MCP_PYTHON)" -m unittest discover -s tests
 
 tests-install:
 	@mkdir -p .tmp
-	@uv venv --clear .tmp/install-venv
-	@uv pip install --python .tmp/install-venv/bin/python --editable '.[mcp]'
+	@rm -rf .tmp/install-venv
+	@$(PYTHON) -m venv .tmp/install-venv
+	@.tmp/install-venv/bin/python -m pip install --upgrade pip >/dev/null
+	@.tmp/install-venv/bin/python -m pip install --editable '.[mcp]' >/dev/null
 	@.tmp/install-venv/bin/diavisuals --version
-	@.tmp/install-venv/bin/diavisuals install-check >/dev/null
+	@.tmp/install-venv/bin/diavisuals install-check --command .tmp/install-venv/bin/diavisuals >/dev/null
 	@.tmp/install-venv/bin/diavisuals factory-manifest >/dev/null
+
+mcp-env: $(MCP_ENV_STAMP)
+
+$(MCP_ENV_STAMP): pyproject.toml
+	@mkdir -p "$(dir $(MCP_VENV))"
+	@$(PYTHON) -m venv "$(MCP_VENV)"
+	@"$(MCP_PYTHON)" -m pip install --upgrade pip >/dev/null
+	@"$(MCP_PYTHON)" -m pip install --editable '.[mcp]' >/dev/null
+	@touch "$@"
 
 docker-build-renderer:
 	@PYTHONPATH=src python3 -m diavisuals.cli build-renderer --profile "$(COMPAT_PROFILE)" >/dev/null
 
-mcp-build: docker-build-renderer
-	@uv run --extra mcp diavisuals install-check >/dev/null
+docker-ensure-renderer:
+	@PYTHONPATH=src python3 -m diavisuals.cli ensure-renderer --profile "$(COMPAT_PROFILE)" >/dev/null
+
+mcp-build: docker-ensure-renderer mcp-env
+	@"$(MCP_CLI)" install-check --command "$(MCP_CLI)" >/dev/null
 
 mcp-init: mcp-build
 
 mcp-check: check
 
 mcp-smoke: mcp-build tests-mcp
-	@uv --directory "$(CURDIR)" run --extra mcp diavisuals --project "$(CURDIR)" render-diagram-text --text 'graph TD; A[Smoke] --> B[SVG]' --output ".cache/diavisuals/smoke/smoke.svg" --format svg --no-data >/dev/null
-	@printf '%s\n' '@startuml' 'Alice -> Bob : Smoke' '@enduml' | uv --directory "$(CURDIR)" run --extra mcp diavisuals --project "$(CURDIR)" render-diagram-text --output ".cache/diavisuals/smoke/plantuml-smoke.pdf" --format pdf --no-data >/dev/null
+	@"$(MCP_CLI)" --project "$(CURDIR)" render-diagram-text --text 'graph TD; A[Smoke] --> B[SVG]' --output ".cache/diavisuals/smoke/smoke.svg" --format svg --no-data >/dev/null
+	@printf '%s\n' '@startuml' 'Alice -> Bob : Smoke' '@enduml' | "$(MCP_CLI)" --project "$(CURDIR)" render-diagram-text --output ".cache/diavisuals/smoke/plantuml-smoke.pdf" --format pdf --no-data >/dev/null
 
-mcp-stdio:
-	@uv --directory "$(CURDIR)" run --extra mcp diavisuals --project "$(PROJECT)" mcp serve
+mcp-stdio: mcp-env
+	@"$(MCP_CLI)" --project "$(PROJECT)" mcp serve
 
 render-diagram:
 	@test -n "$(INPUT)" || (echo "Usage: make render-diagram INPUT=<diagram> OUTPUT=<output>" >&2; exit 2)

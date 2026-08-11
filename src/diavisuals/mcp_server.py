@@ -28,7 +28,7 @@ def run_server(project: pathlib.Path) -> None:
     except ImportError as exc:  # pragma: no cover - optional runtime dependency
         raise SystemExit(
             "The MCP server requires the optional dependency. Install with: "
-            "uv tool install 'diavisuals[mcp]'"
+            "python3 -m pip install 'diavisuals[mcp]'"
         ) from exc
 
     consumer_root = project.expanduser().resolve()

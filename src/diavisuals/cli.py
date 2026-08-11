@@ -17,6 +17,7 @@ from .registry import (
     check_styles,
     client_config,
     compatibility_status,
+    ensure_renderer_image,
     factory_manifest,
     install_check,
     json_dumps,
@@ -95,6 +96,12 @@ def cmd_install_check(args: argparse.Namespace) -> int:
 
 def cmd_build_renderer(args: argparse.Namespace) -> int:
     payload = build_renderer_image(args.profile, dry_run=args.dry_run)
+    print_payload(payload)
+    return 0 if payload.get("ok") else 1
+
+
+def cmd_ensure_renderer(args: argparse.Namespace) -> int:
+    payload = ensure_renderer_image(args.profile)
     print_payload(payload)
     return 0 if payload.get("ok") else 1
 
@@ -246,6 +253,10 @@ def build_parser() -> argparse.ArgumentParser:
     renderer_parser.add_argument("--profile", default=DEFAULT_COMPATIBILITY)
     renderer_parser.add_argument("--dry-run", action="store_true")
     renderer_parser.set_defaults(func=cmd_build_renderer)
+
+    ensure_renderer_parser = subcommands.add_parser("ensure-renderer", help="Ensure the Docker renderer image exists")
+    ensure_renderer_parser.add_argument("--profile", default=DEFAULT_COMPATIBILITY)
+    ensure_renderer_parser.set_defaults(func=cmd_ensure_renderer)
 
     render_parser = subcommands.add_parser("render-diagram", help="Render one styled Mermaid or PlantUML diagram through Docker")
     render_parser.add_argument("input")

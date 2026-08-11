@@ -15,7 +15,7 @@ keywords = ["diagrams", "mermaid", "plantuml", "mcp", "styles"]
 dependencies = []
 
 [project.optional-dependencies]
-mcp = ["mcp>=1.0.0"]
+mcp = ["mcp>=1.0,<2"]
 dev = ["hatchling>=1.21"]
 
 [project.scripts]

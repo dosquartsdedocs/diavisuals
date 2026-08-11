@@ -13,6 +13,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from diavisuals.registry import (
+    build_renderer_image,
     check_styles,
     compatibility_status,
     factory_manifest,
@@ -60,11 +61,19 @@ class RegistryTest(unittest.TestCase):
         self.assertTrue(status["ok"], status)
         self.assertEqual(status["values"]["MERMAID_CLI_VERSION"], "11.4.2")
         self.assertEqual(status["values"]["PLANTUML_VERSION"], "1.2026.1")
+        self.assertEqual(status["values"]["DIAVISUALS_RENDER_BUILD_NETWORK"], "host")
         self.assertIn("kanban", status["values"]["MERMAID_TYPES"])
 
         path_status = compatibility_status("compat/mermaid-11.4.2-plantuml-1.2026.1.env")
         self.assertTrue(path_status["ok"], path_status)
         self.assertEqual(path_status["requested"], "mermaid-11.4.2-plantuml-1.2026.1")
+
+    def test_build_renderer_dry_run_uses_profile_network(self) -> None:
+        result = build_renderer_image("mermaid-11.4.2-plantuml-1.2026.1", dry_run=True)
+        self.assertTrue(result["ok"], result)
+        command = result["command"]
+        self.assertIn("--network", command)
+        self.assertEqual(command[command.index("--network") + 1], "host")
 
     def test_factory_manifest_and_submodule_plan(self) -> None:
         manifest = factory_manifest()
