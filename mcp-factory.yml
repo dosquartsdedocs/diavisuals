@@ -37,6 +37,9 @@ commands:
   smoke:
     - make
     - mcp-smoke
+  down:
+    - make
+    - mcp-down
   update:
     - diavisuals
     - update

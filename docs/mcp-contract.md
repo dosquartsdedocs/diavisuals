@@ -46,4 +46,7 @@ inside the consumer workspace passed as `${workspaceFolder}` / `--project`.
 
 External launchers can scan sibling Git repositories for `mcp-factory.yml`.
 The file exposes stable JSON commands for checks, updates, Codex MCP
-registration, client configuration, and server launch.
+registration, client configuration, server launch, and renderer teardown.
+`commands.down` force-removes only containers carrying the exact
+`io.context.mcp-factory=diavisuals` label; it preserves renderer images,
+volumes, and unrelated containers and is safe to run repeatedly.

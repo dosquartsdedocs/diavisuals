@@ -17,6 +17,7 @@ DEFAULT_RELEASE = "v0.1.2"
 DEFAULT_COMPATIBILITY = "mermaid-11.4.2-plantuml-1.2026.1"
 DEFAULT_FAMILY = "benizar"
 DEFAULT_REMOTE = "git@github.com:dosquartsdedocs/diavisuals.git"
+RENDERER_CONTAINER_LABEL = "io.context.mcp-factory=diavisuals"
 HEX_COLOR_RE = re.compile(r"#[0-9A-Fa-f]{6}\b")
 MERMAID_TEXT_STARTS = {
     "architecture-beta",
@@ -356,6 +357,8 @@ def render_diagram(
         "docker",
         "run",
         "--rm",
+        "--label",
+        RENDERER_CONTAINER_LABEL,
         "--user",
         uid_gid,
         "-e",
@@ -825,6 +828,7 @@ def factory_manifest() -> dict[str, Any]:
             "init": ["make", "mcp-init"],
             "check": ["diavisuals", "check"],
             "smoke": ["make", "mcp-smoke"],
+            "down": ["make", "mcp-down"],
             "update": ["diavisuals", "update"],
             "install_codex_mcp": ["diavisuals", "install-codex-mcp"],
             "client_config": ["diavisuals", "mcp", "client-config"],

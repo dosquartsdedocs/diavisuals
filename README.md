@@ -43,6 +43,13 @@ Build the shared renderer image once:
 make mcp-build
 ```
 
+Force-remove any active renderer containers owned by this factory without
+removing images, volumes, or unrelated containers:
+
+```bash
+make mcp-down
+```
+
 Render a diagram source file from a consumer project:
 
 ```bash

@@ -33,6 +33,7 @@ uid=$(id -u)
 gid=$(id -g)
 
 docker run --rm \
+  --label io.context.mcp-factory=diavisuals \
   --user "${uid}:${gid}" \
   -e HOME=/tmp \
   -e JAVA_TOOL_OPTIONS=-Duser.home=/tmp \

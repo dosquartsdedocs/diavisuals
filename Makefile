@@ -11,7 +11,7 @@ MCP_ENV_STAMP := $(MCP_VENV)/.diavisuals-mcp-installed
 MCP_PYTHON := $(MCP_VENV)/bin/python
 MCP_CLI := $(MCP_VENV)/bin/diavisuals
 
-.PHONY: help check tests test tests-mcp tests-install mcp-env docker-build-renderer docker-ensure-renderer mcp-build mcp-init mcp-check mcp-smoke mcp-stdio render-diagram render-examples render-gallery render-gallery-local clean
+.PHONY: help check tests test tests-mcp tests-install mcp-env docker-build-renderer docker-ensure-renderer mcp-build mcp-init mcp-check mcp-smoke mcp-down mcp-stdio render-diagram render-examples render-gallery render-gallery-local clean
 
 help:
 	@printf "Targets:\n"
@@ -24,6 +24,7 @@ help:
 	@printf "  make docker-ensure-renderer Ensure the renderer image exists\n"
 	@printf "  make mcp-build        Prepare the MCP optional dependencies\n"
 	@printf "  make mcp-smoke        Run the MCP smoke check and render one SVG through Docker\n"
+	@printf "  make mcp-down         Force-remove diavisuals renderer containers only\n"
 	@printf "  make mcp-stdio        Serve the MCP through the standard stdio launcher\n"
 	@printf "  make render-diagram INPUT=... OUTPUT=... Render one styled diagram through Docker\n"
 	@printf "  make render-examples  Render examples when mmdc/plantuml are installed\n"
@@ -77,6 +78,10 @@ mcp-check: check
 mcp-smoke: mcp-build tests-mcp
 	@"$(MCP_CLI)" --project "$(CURDIR)" render-diagram-text --text 'graph TD; A[Smoke] --> B[SVG]' --output ".cache/diavisuals/smoke/smoke.svg" --format svg --no-data >/dev/null
 	@printf '%s\n' '@startuml' 'Alice -> Bob : Smoke' '@enduml' | "$(MCP_CLI)" --project "$(CURDIR)" render-diagram-text --output ".cache/diavisuals/smoke/plantuml-smoke.pdf" --format pdf --no-data >/dev/null
+
+mcp-down:
+	@containers="$$(docker container ls --all --quiet --filter 'label=io.context.mcp-factory=diavisuals')"; \
+	if [[ -n "$$containers" ]]; then docker container rm --force $$containers >/dev/null; fi
 
 mcp-stdio: mcp-env
 	@"$(MCP_CLI)" --project "$(PROJECT)" mcp serve

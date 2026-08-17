@@ -83,6 +83,7 @@ class RegistryTest(unittest.TestCase):
         self.assertIn("style_audit", manifest["mcp"]["tools"])
         self.assertIn("render_diagram", manifest["mcp"]["tools"])
         self.assertIn("render_diagram_text", manifest["mcp"]["tools"])
+        self.assertEqual(manifest["commands"]["down"], ["make", "mcp-down"])
         self.assertEqual(manifest["workspace_rule"]["consumer_root"], ".")
         self.assertIn(".cache/diavisuals", manifest["workspace_rule"]["generated_paths"])
 
@@ -133,6 +134,10 @@ class RegistryTest(unittest.TestCase):
         self.assertEqual(result["engine"], "mermaid")
         self.assertEqual(result["style"], "benizar-mermaid")
         self.assertEqual(result["command"][0], "docker")
+        self.assertEqual(
+            result["command"][result["command"].index("--label") + 1],
+            "io.context.mcp-factory=diavisuals",
+        )
         self.assertIn("/diavisuals/tools/style-diagram-source.sh", result["command"][-1])
         self.assertIn("styles/mermaid/benizar-mermaid.json", result["command"][-1])
 
@@ -150,6 +155,10 @@ class RegistryTest(unittest.TestCase):
         self.assertEqual(result["style_requested"], "benizar")
         self.assertEqual(result["style"], "benizar-plantuml")
         self.assertIn("/diavisuals/tools/style-diagram-source.sh plantuml benizar-plantuml", result["command"][-1])
+
+    def test_gallery_renderer_uses_factory_container_label(self) -> None:
+        script = (REPO_ROOT / "tools" / "render-gallery-docker.sh").read_text(encoding="utf-8")
+        self.assertIn("--label io.context.mcp-factory=diavisuals", script)
 
     def test_render_diagram_text_dry_run_writes_inline_source_and_artifact_metadata(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

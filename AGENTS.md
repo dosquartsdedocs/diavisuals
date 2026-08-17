@@ -13,7 +13,7 @@ This repository is a reusable, user-scoped MCP factory for diagram style assets 
 - `make mcp-build`: prepare package/runtime dependencies without starting a persistent service.
 - `make mcp-check`: run a fast deterministic repository check.
 - `make mcp-smoke`: prove the MCP can answer a minimal style/tooling request.
-- No `mcp-up`/`mcp-down` is expected unless this repo later adds a persistent URL service.
+- `make mcp-down`: force-remove only labeled renderer containers; preserve images, volumes, and unrelated containers.
 
 The smoke test stays in this repository because only `diavisuals` knows what a meaningful minimal style proof is. ContExt invokes `commands.smoke`, stores the latest result in its smoke status cache, and disables the generated switch only when the last known smoke state is `failed`.
 
