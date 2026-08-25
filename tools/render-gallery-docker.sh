@@ -21,7 +21,12 @@ if ! docker image inspect "$image" >/dev/null 2>&1; then
     printf 'the profile does not define DIAVISUALS_RENDER_DOCKERFILE, so it cannot be built automatically\n' >&2
     exit 1
   fi
+  build_network_args=()
+  if [[ -n ${DIAVISUALS_RENDER_BUILD_NETWORK:-} ]]; then
+    build_network_args=(--network "$DIAVISUALS_RENDER_BUILD_NETWORK")
+  fi
   docker build \
+    "${build_network_args[@]}" \
     -f "$DIAVISUALS_RENDER_DOCKERFILE" \
     --build-arg MERMAID_CLI_VERSION="${MERMAID_CLI_VERSION:?}" \
     --build-arg PLANTUML_VERSION="${PLANTUML_VERSION:?}" \

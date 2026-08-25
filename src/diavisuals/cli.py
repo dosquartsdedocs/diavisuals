@@ -265,7 +265,7 @@ def build_parser() -> argparse.ArgumentParser:
     render_parser.add_argument("--family", default=DEFAULT_FAMILY)
     render_parser.add_argument("--style", help="Engine-specific style name or family override")
     render_parser.add_argument("--profile", default=DEFAULT_COMPATIBILITY)
-    render_parser.add_argument("--format", dest="output_format", default="svg")
+    render_parser.add_argument("--format", dest="output_format", choices=["svg", "png", "pdf"])
     render_parser.add_argument("--dry-run", action="store_true")
     render_parser.set_defaults(func=cmd_render_diagram)
 
@@ -277,7 +277,7 @@ def build_parser() -> argparse.ArgumentParser:
     render_text_parser.add_argument("--family", default=DEFAULT_FAMILY)
     render_text_parser.add_argument("--style", help="Engine-specific style name or family override")
     render_text_parser.add_argument("--profile", default=DEFAULT_COMPATIBILITY)
-    render_text_parser.add_argument("--format", dest="output_format", choices=["svg", "png", "pdf"], default="svg")
+    render_text_parser.add_argument("--format", dest="output_format", choices=["svg", "png", "pdf"])
     render_text_parser.add_argument("--no-data", action="store_true", help="Return only the artifact path and metadata")
     render_text_parser.add_argument("--dry-run", action="store_true")
     render_text_parser.set_defaults(func=cmd_render_diagram_text)

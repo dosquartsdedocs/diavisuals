@@ -120,7 +120,7 @@ def run_server(project: pathlib.Path) -> None:
         family: str = DEFAULT_FAMILY,
         style: str = "",
         profile: str = DEFAULT_COMPATIBILITY,
-        output_format: str = "svg",
+        output_format: str = "",
         dry_run: bool = False,
     ) -> dict[str, Any]:
         """Render one styled Mermaid or PlantUML diagram through the diavisuals Docker renderer."""
@@ -143,7 +143,7 @@ def run_server(project: pathlib.Path) -> None:
         family: str = DEFAULT_FAMILY,
         style: str = "",
         profile: str = DEFAULT_COMPATIBILITY,
-        output_format: str = "svg",
+        output_format: str = "",
         output_path: str = "",
         include_data: bool = True,
         dry_run: bool = False,
