@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "diavisuals"
-version = "0.1.2"
+version = "0.2.0"
 description = "Shared diagram visual style registry with MCP-friendly tooling."
 readme = "README.md"
 requires-python = ">=3.10"
@@ -30,6 +30,7 @@ packages = ["src/diavisuals"]
 "examples" = "diavisuals/assets/examples"
 "tokens" = "diavisuals/assets/tokens"
 "docs" = "diavisuals/assets/docs"
+"docker" = "diavisuals/assets/docker"
 "tools" = "diavisuals/assets/tools"
 "mcp-factory.yml" = "diavisuals/assets/mcp-factory.yml"
 "AGENTS.md" = "diavisuals/assets/AGENTS.md"

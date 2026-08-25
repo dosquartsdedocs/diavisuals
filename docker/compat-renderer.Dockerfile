@@ -5,6 +5,7 @@ ARG PLANTUML_VERSION=1.2026.1
 
 ENV DEBIAN_FRONTEND=noninteractive
 ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium
+ENV PLANTUML_SECURITY_PROFILE=SANDBOX
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \

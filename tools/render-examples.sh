@@ -55,6 +55,7 @@ if command -v mmdc >/dev/null 2>&1; then
     output="$out_dir/mermaid/${name}.svg"
     tools/style-diagram-source.sh mermaid "$mermaid_style" "$src" "$styled"
     mmdc -i "$styled" -o "$output" -c "$mermaid_config" -p "$puppeteer_config" >/dev/null
+    python3 "$repo_root/tools/normalize-mermaid-svg.py" "$output"
     if contains_type "$name" "$readme_mermaid_types"; then
       mmdc -i "$styled" -o "$out_dir/readme/mermaid-${name}.png" -c "$mermaid_config" -p "$puppeteer_config" --scale 1 >/dev/null
     fi

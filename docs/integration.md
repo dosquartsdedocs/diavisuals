@@ -18,7 +18,7 @@ while still giving consumers a simple contract: shared style, shared renderer,
 declared compatibility profile.
 
 Consumers should declare `diavisuals` under `mcp_dependencies` in
-`mcp-factory.yml`, pin a short `diavisuals` release tag such as `v0.1.2`, and
+`mcp-factory.yml`, pin a short `diavisuals` release tag such as `v0.2.0`, and
 declare which compatibility profile they render, for example
 `mermaid-11.4.2-plantuml-1.2026.1`.
 
@@ -31,7 +31,7 @@ contract without copying the engines:
 ```yaml
 diavisuals:
   source: external
-  release: v0.1.2
+  release: v0.2.0
   compatibility: mermaid-11.4.2-plantuml-1.2026.1
 diagram_styles:
   family: benizar
@@ -92,7 +92,7 @@ inside the consumer project.
 
 ## my-slides-vault
 
-`my-slides-vault` is the reference consumer for the `v0.1.2` release target and its modern profile `mermaid-11.4.2-plantuml-1.2026.1`. It records the style contract in `docs/slides/slides.yml`:
+`my-slides-vault` is the reference consumer for the `v0.2.0` release target and its modern profile `mermaid-11.4.2-plantuml-1.2026.1`. It records the style contract in `docs/slides/slides.yml`:
 
 ```yaml
 diagram_styles:

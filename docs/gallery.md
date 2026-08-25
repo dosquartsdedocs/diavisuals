@@ -1,6 +1,6 @@
 # Rendered Gallery
 
-Release target: `v0.1.2`
+Release target: `v0.2.0`
 
 - Compatibility profile: `mermaid-11.4.2-plantuml-1.2026.1`
 - Mermaid CLI: 11.4.2

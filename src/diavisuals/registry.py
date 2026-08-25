@@ -10,10 +10,11 @@ import re
 import shlex
 import shutil
 import subprocess
+import sys
 from typing import Any
 
 
-DEFAULT_RELEASE = "v0.1.2"
+DEFAULT_RELEASE = "v0.2.0"
 DEFAULT_COMPATIBILITY = "mermaid-11.4.2-plantuml-1.2026.1"
 DEFAULT_FAMILY = "benizar"
 DEFAULT_REMOTE = "git@github.com:dosquartsdedocs/diavisuals.git"
@@ -211,6 +212,14 @@ def resolve_project_path(root: pathlib.Path, raw: str, *, must_exist: bool = Fal
     return resolved
 
 
+def reject_symlink_components(path: pathlib.Path, root: pathlib.Path) -> None:
+    current = root
+    for part in path.relative_to(root).parts:
+        current /= part
+        if current.is_symlink():
+            raise ValueError(f"generated path contains a symlink: {rel(current, root)}")
+
+
 def diagram_engine(input_path: pathlib.Path, requested: str = "auto") -> str:
     requested = (requested or "auto").strip().lower()
     if requested in {"mermaid", "plantuml"}:
@@ -280,6 +289,23 @@ def validate_rendered_artifact(output: pathlib.Path, output_format: str) -> dict
     return {"ok": True, "path": str(output), "bytes": size, "format": output_format}
 
 
+def resolve_output_format(output: pathlib.Path | None, requested: str | None) -> str:
+    requested_format = (requested or "").strip().lower()
+    suffix_format = output.suffix.lstrip(".") if output and output.suffix else ""
+    if requested_format and requested_format not in OUTPUT_MIME_TYPES:
+        raise ValueError("output_format must be svg, png, or pdf")
+    if output is not None and not suffix_format:
+        raise ValueError("output path must end with .svg, .png, or .pdf")
+    if suffix_format != suffix_format.lower():
+        raise ValueError("output path extension must be lowercase")
+    if suffix_format and suffix_format not in OUTPUT_MIME_TYPES:
+        raise ValueError("output path extension must be .svg, .png, or .pdf")
+    output_format = requested_format or suffix_format or "svg"
+    if suffix_format and suffix_format != output_format:
+        raise ValueError(f"output path extension .{suffix_format} does not match output_format {output_format}")
+    return output_format
+
+
 def render_diagram(
     project_root: str | pathlib.Path,
     *,
@@ -289,16 +315,14 @@ def render_diagram(
     family: str = DEFAULT_FAMILY,
     style: str | None = None,
     profile: str = DEFAULT_COMPATIBILITY,
-    output_format: str = "svg",
+    output_format: str = "",
     dry_run: bool = False,
 ) -> dict[str, Any]:
     root = pathlib.Path(project_root).expanduser().resolve()
     source = resolve_project_path(root, input_path, must_exist=True)
     output = resolve_project_path(root, output_path)
     resolved_engine = diagram_engine(source, engine)
-    output_format = (output_format or output.suffix.lstrip(".") or "svg").strip().lower()
-    if output_format not in {"svg", "png", "pdf"}:
-        raise ValueError("output_format must be svg, png, or pdf")
+    output_format = resolve_output_format(output, output_format)
 
     renderer = renderer_profile(profile)
     if not renderer["ok"]:
@@ -307,7 +331,10 @@ def render_diagram(
     style_query = (style or "").strip() or family
     style_name = resolve_style_name(resolved_engine, style_query)
     cache_suffix = ".mmd" if resolved_engine == "mermaid" else ".puml"
-    styled = root / ".cache" / "diavisuals" / resolved_engine / f"{output.stem}{cache_suffix}"
+    cache_key = hashlib.sha256(
+        "\0".join((str(source), str(output), resolved_engine, style_name, profile)).encode("utf-8")
+    ).hexdigest()[:12]
+    styled = root / ".cache" / "diavisuals" / resolved_engine / f"{output.stem}-{cache_key}{cache_suffix}"
     puppeteer = root / ".cache" / "diavisuals" / "puppeteer.json"
     style_source = [
         "/diavisuals/tools/style-diagram-source.sh",
@@ -319,27 +346,29 @@ def render_diagram(
     mkdirs = ["mkdir", "-p", container_path(output.parent, root), container_path(styled.parent, root), container_path(puppeteer.parent, root)]
     if resolved_engine == "mermaid":
         mermaid_config = f"/diavisuals/styles/mermaid/{style_name}.json"
-        script = " && ".join(
-            [
-                shell_join(mkdirs),
-                "printf '%s\\n' '{\"args\":[\"--no-sandbox\",\"--disable-setuid-sandbox\",\"--disable-dev-shm-usage\"]}' > "
-                + shlex.quote(container_path(puppeteer, root)),
-                shell_join(style_source),
-                shell_join(
-                    [
-                        "mmdc",
-                        "-i",
-                        container_path(styled, root),
-                        "-o",
-                        container_path(output, root),
-                        "-c",
-                        mermaid_config,
-                        "-p",
-                        container_path(puppeteer, root),
-                    ]
-                ),
-            ]
-        )
+        render_command = [
+            "mmdc",
+            "-i",
+            container_path(styled, root),
+            "-o",
+            container_path(output, root),
+            "-c",
+            mermaid_config,
+            "-p",
+            container_path(puppeteer, root),
+        ]
+        if output_format == "pdf":
+            render_command.append("--pdfFit")
+        steps = [
+            shell_join(mkdirs),
+            "printf '%s\\n' '{\"args\":[\"--no-sandbox\",\"--disable-setuid-sandbox\",\"--disable-dev-shm-usage\"]}' > "
+            + shlex.quote(container_path(puppeteer, root)),
+            shell_join(style_source),
+            shell_join(render_command),
+        ]
+        if output_format == "svg":
+            steps.append(shell_join(["python3", "/diavisuals/tools/normalize-mermaid-svg.py", container_path(output, root)]))
+        script = " && ".join(steps)
     else:
         expected = output.parent / f"{styled.stem}.{output_format}"
         script = " && ".join(
@@ -365,6 +394,8 @@ def render_diagram(
         "HOME=/tmp",
         "-e",
         "JAVA_TOOL_OPTIONS=-Duser.home=/tmp",
+        "-e",
+        "PLANTUML_SECURITY_PROFILE=SANDBOX",
         "-v",
         f"{root}:/workspace",
         "-v",
@@ -440,14 +471,13 @@ def render_diagram_text(
     family: str = DEFAULT_FAMILY,
     style: str | None = None,
     profile: str = DEFAULT_COMPATIBILITY,
-    output_format: str = "svg",
+    output_format: str = "",
     include_data: bool = True,
     dry_run: bool = False,
 ) -> dict[str, Any]:
     root = pathlib.Path(project_root).expanduser().resolve()
-    output_format = (output_format or "svg").strip().lower()
-    if output_format not in OUTPUT_MIME_TYPES:
-        raise ValueError("output_format must be svg, png, or pdf")
+    requested_output = resolve_project_path(root, output_path) if output_path else None
+    output_format = resolve_output_format(requested_output, output_format)
     resolved_engine = diagram_engine_from_text(diagram_text, engine)
     source_suffix = ".mmd" if resolved_engine == "mermaid" else ".puml"
     digest_values = {
@@ -460,13 +490,11 @@ def render_diagram_text(
     }
     digest = hashlib.sha256(json.dumps(digest_values, sort_keys=True).encode("utf-8")).hexdigest()[:16]
     source = root / ".cache" / "diavisuals" / "inline" / resolved_engine / f"{digest}{source_suffix}"
-    output = (
-        resolve_project_path(root, output_path)
-        if output_path
-        else root / ".cache" / "diavisuals" / "outputs" / resolved_engine / f"{digest}.{output_format}"
-    )
+    output = requested_output or root / ".cache" / "diavisuals" / "outputs" / resolved_engine / f"{digest}.{output_format}"
 
+    reject_symlink_components(source, root)
     source.parent.mkdir(parents=True, exist_ok=True)
+    reject_symlink_components(source, root)
     source.write_text(diagram_text.rstrip() + "\n", encoding="utf-8")
 
     rendered = render_diagram(
@@ -480,19 +508,22 @@ def render_diagram_text(
         output_format=output_format,
         dry_run=dry_run,
     )
-    payload = {
-        **rendered,
-        "inline": True,
-        "input_text_sha256": hashlib.sha256(diagram_text.encode("utf-8")).hexdigest(),
-        "input_source": rel(source, root),
-        "artifact": diagram_artifact_payload(output, root, output_format, include_data=include_data)
-        if not dry_run
+    artifact = (
+        diagram_artifact_payload(output, root, output_format, include_data=include_data)
+        if not dry_run and rendered.get("ok")
         else {
             "path": rel(output, root),
             "mime_type": OUTPUT_MIME_TYPES[output_format],
             "format": output_format,
             "exists": False,
-        },
+        }
+    )
+    payload = {
+        **rendered,
+        "inline": True,
+        "input_text_sha256": hashlib.sha256(diagram_text.encode("utf-8")).hexdigest(),
+        "input_source": rel(source, root),
+        "artifact": artifact,
     }
     return payload
 
@@ -778,7 +809,7 @@ def update_factory(dry_run: bool = False) -> dict[str, Any]:
 
 
 def mcp_stdio_command(project: str = "${workspaceFolder}") -> list[str]:
-    return ["make", "-C", str(repo_dir()), "mcp-stdio", f"PROJECT={project}"]
+    return [sys.executable, "-m", "diavisuals.cli", "--project", project, "mcp", "serve"]
 
 
 def client_config(project: str = "${workspaceFolder}", command: str = "") -> dict[str, Any]:
@@ -812,7 +843,7 @@ def factory_manifest() -> dict[str, Any]:
         "ok": True,
         "name": "diavisuals",
         "kind": "codex-mcp-factory",
-        "version": "0.1.2",
+        "version": "0.2.0",
         "description": "Shared diagram style registry and Docker renderer for Mermaid and PlantUML.",
         "factory": str(root),
         "git_head": git_head(root),
@@ -874,6 +905,8 @@ def factory_manifest() -> dict[str, Any]:
 
 def install_check(command: str = "diavisuals") -> dict[str, Any]:
     resolved = shutil.which(command)
+    if resolved:
+        resolved = str(pathlib.Path(resolved).resolve())
     result = None
     mcp_dependency = None
     if resolved:

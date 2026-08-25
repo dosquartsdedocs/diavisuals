@@ -15,6 +15,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 from diavisuals.registry import (
     build_renderer_image,
     check_styles,
+    client_config,
     compatibility_status,
     factory_manifest,
     json_dumps,
@@ -31,6 +32,32 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 
 
 class RegistryTest(unittest.TestCase):
+    def test_mermaid_style_uses_print_safe_svg_text(self) -> None:
+        config = json.loads((REPO_ROOT / "styles/mermaid/benizar-mermaid.json").read_text(encoding="utf-8"))
+
+        self.assertIs(config["htmlLabels"], False)
+        self.assertIs(config["flowchart"]["htmlLabels"], False)
+
+    def test_mermaid_svg_normalizer_preserves_inter_tspan_spaces(self) -> None:
+        script = REPO_ROOT / "tools/normalize-mermaid-svg.py"
+        with tempfile.TemporaryDirectory() as tmp:
+            svg = Path(tmp) / "diagram.svg"
+            svg.write_text(
+                "<svg><text><tspan>First</tspan><tspan> word</tspan>"
+                "<tspan>\u00a0again</tspan></text></svg>",
+                encoding="utf-8",
+            )
+
+            completed = subprocess.run([sys.executable, str(script), str(svg)], check=False)
+            repeated = subprocess.run([sys.executable, str(script), str(svg)], check=False)
+            normalized = svg.read_text(encoding="utf-8")
+
+            self.assertEqual(completed.returncode, 0)
+            self.assertEqual(repeated.returncode, 0)
+            self.assertIn('<tspan xml:space="preserve"> word</tspan>', normalized)
+            self.assertIn('<tspan xml:space="preserve"> again</tspan>', normalized)
+            self.assertNotIn("\u00a0", normalized)
+
     def test_style_inventory_and_check(self) -> None:
         inventory = style_inventory()
         self.assertTrue(inventory["ok"], inventory)
@@ -62,6 +89,7 @@ class RegistryTest(unittest.TestCase):
         self.assertEqual(status["values"]["MERMAID_CLI_VERSION"], "11.4.2")
         self.assertEqual(status["values"]["PLANTUML_VERSION"], "1.2026.1")
         self.assertEqual(status["values"]["DIAVISUALS_RENDER_BUILD_NETWORK"], "host")
+        self.assertEqual(status["values"]["DIAVISUALS_RENDER_IMAGE"], "diavisuals/render:v0.2.0")
         self.assertIn("kanban", status["values"]["MERMAID_TYPES"])
 
         path_status = compatibility_status("compat/mermaid-11.4.2-plantuml-1.2026.1.env")
@@ -89,7 +117,7 @@ class RegistryTest(unittest.TestCase):
 
         plan = submodule_plan("/tmp/project", path="docs/slides/resources/diavisuals")
         self.assertTrue(plan["ok"], plan)
-        self.assertEqual(plan["release"], "v0.1.2")
+        self.assertEqual(plan["release"], "v0.2.0")
         self.assertEqual(plan["commands"][0][1:3], ["submodule", "add"])
 
     def test_cli_json(self) -> None:
@@ -139,7 +167,59 @@ class RegistryTest(unittest.TestCase):
             "io.context.mcp-factory=diavisuals",
         )
         self.assertIn("/diavisuals/tools/style-diagram-source.sh", result["command"][-1])
+        self.assertIn("/diavisuals/tools/normalize-mermaid-svg.py", result["command"][-1])
         self.assertIn("styles/mermaid/benizar-mermaid.json", result["command"][-1])
+        self.assertIn("PLANTUML_SECURITY_PROFILE=SANDBOX", result["command"])
+
+    def test_render_diagram_infers_and_validates_output_format(self) -> None:
+        source = REPO_ROOT / "examples" / "benizar" / "mermaid" / "flowchart.mmd"
+        inferred = render_diagram(
+            REPO_ROOT,
+            input_path=str(source.relative_to(REPO_ROOT)),
+            output_path="dist/test-render/flowchart.pdf",
+            dry_run=True,
+        )
+
+        self.assertIn("--pdfFit", inferred["command"][-1])
+        with self.assertRaisesRegex(ValueError, "does not match"):
+            render_diagram(
+                REPO_ROOT,
+                input_path=str(source.relative_to(REPO_ROOT)),
+                output_path="dist/test-render/flowchart.pdf",
+                output_format="svg",
+                dry_run=True,
+            )
+        with self.assertRaisesRegex(ValueError, "must be lowercase"):
+            render_diagram(
+                REPO_ROOT,
+                input_path=str(source.relative_to(REPO_ROOT)),
+                output_path="dist/test-render/flowchart.SVG",
+                dry_run=True,
+            )
+        with self.assertRaisesRegex(ValueError, "must end with"):
+            render_diagram(
+                REPO_ROOT,
+                input_path=str(source.relative_to(REPO_ROOT)),
+                output_path="dist/test-render/flowchart",
+                dry_run=True,
+            )
+
+    def test_render_diagram_cache_path_distinguishes_equal_output_names(self) -> None:
+        source = REPO_ROOT / "examples" / "benizar" / "mermaid" / "flowchart.mmd"
+        first = render_diagram(
+            REPO_ROOT,
+            input_path=str(source.relative_to(REPO_ROOT)),
+            output_path="dist/first/chart.svg",
+            dry_run=True,
+        )
+        second = render_diagram(
+            REPO_ROOT,
+            input_path=str(source.relative_to(REPO_ROOT)),
+            output_path="dist/second/chart.svg",
+            dry_run=True,
+        )
+
+        self.assertNotEqual(first["styled_source"], second["styled_source"])
 
     def test_render_diagram_dry_run_accepts_explicit_style(self) -> None:
         source = REPO_ROOT / "examples" / "benizar" / "plantuml" / "sequence.puml"
@@ -156,9 +236,29 @@ class RegistryTest(unittest.TestCase):
         self.assertEqual(result["style"], "benizar-plantuml")
         self.assertIn("/diavisuals/tools/style-diagram-source.sh plantuml benizar-plantuml", result["command"][-1])
 
+    def test_render_mermaid_pdf_fits_the_chart(self) -> None:
+        source = REPO_ROOT / "examples" / "benizar" / "mermaid" / "flowchart.mmd"
+        result = render_diagram(
+            REPO_ROOT,
+            input_path=str(source.relative_to(REPO_ROOT)),
+            output_path="dist/test-render/flowchart.pdf",
+            output_format="pdf",
+            dry_run=True,
+        )
+
+        self.assertIn("--pdfFit", result["command"][-1])
+
     def test_gallery_renderer_uses_factory_container_label(self) -> None:
         script = (REPO_ROOT / "tools" / "render-gallery-docker.sh").read_text(encoding="utf-8")
         self.assertIn("--label io.context.mcp-factory=diavisuals", script)
+        self.assertIn("DIAVISUALS_RENDER_BUILD_NETWORK", script)
+
+    def test_client_config_launches_the_installed_python_module(self) -> None:
+        config = client_config("/tmp/project")
+        server = config["mcpServers"]["diavisuals"]
+
+        self.assertEqual(server["command"], sys.executable)
+        self.assertEqual(server["args"], ["-m", "diavisuals.cli", "--project", "/tmp/project", "mcp", "serve"])
 
     def test_render_diagram_text_dry_run_writes_inline_source_and_artifact_metadata(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -196,6 +296,54 @@ class RegistryTest(unittest.TestCase):
         self.assertEqual(result["style"], "benizar-plantuml")
         self.assertEqual(result["artifact"]["format"], "png")
         self.assertEqual(result["artifact"]["mime_type"], "image/png")
+
+    def test_render_diagram_text_rejects_symlinked_cache_source(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as external_tmp:
+            project = Path(tmp)
+            external = Path(external_tmp) / "outside.mmd"
+            external.write_text("do not replace\n", encoding="utf-8")
+            first = render_diagram_text(
+                project,
+                diagram_text="flowchart TD\n  A --> B\n",
+                dry_run=True,
+            )
+            source = project / first["input_source"]
+            source.unlink()
+            source.symlink_to(external)
+
+            with self.assertRaisesRegex(ValueError, "contains a symlink"):
+                render_diagram_text(
+                    project,
+                    diagram_text="flowchart TD\n  A --> B\n",
+                    dry_run=True,
+                )
+
+            self.assertEqual(external.read_text(encoding="utf-8"), "do not replace\n")
+
+    def test_plantuml_renderer_blocks_workspace_includes_when_enabled(self) -> None:
+        if os.environ.get("DIAVISUALS_MCP_SMOKE") != "1":
+            self.skipTest("set DIAVISUALS_MCP_SMOKE=1 to run the Docker security smoke test")
+
+        with tempfile.TemporaryDirectory() as tmp:
+            project = Path(tmp)
+            (project / "secret.puml").write_text("Alice -> Bob : secret\n", encoding="utf-8")
+            existing = project / "existing.svg"
+            existing.write_text("<svg><!-- stale marker --></svg>\n", encoding="utf-8")
+            result = render_diagram_text(
+                project,
+                diagram_text="@startuml\n!include /workspace/secret.puml\n@enduml\n",
+                engine="plantuml",
+                output_path="existing.svg",
+                output_format="svg",
+                include_data=True,
+            )
+
+            self.assertFalse(result["ok"], result)
+            self.assertNotEqual(result["result"]["returncode"], 0)
+            self.assertFalse(result["artifact"]["exists"])
+            self.assertNotIn("svg", result["artifact"])
+            self.assertNotIn("data_base64", result["artifact"])
+            self.assertEqual(existing.read_text(encoding="utf-8"), "<svg><!-- stale marker --></svg>\n")
 
     def test_mcp_module_imports_when_dependency_available(self) -> None:
         if importlib.util.find_spec("mcp") is None:
@@ -240,6 +388,18 @@ class RegistryTest(unittest.TestCase):
                     audit = await session.call_tool("style_audit", {})
                     audit_text = "\n".join(getattr(item, "text", "") for item in audit.content)
                     self.assertIn("vendored-package-assets", audit_text)
+
+                    render = await session.call_tool(
+                        "render_diagram_text",
+                        {
+                            "diagram_text": "flowchart TD\n  A --> B\n",
+                            "include_data": False,
+                            "dry_run": True,
+                        },
+                    )
+                    render_text = "\n".join(getattr(item, "text", "") for item in render.content)
+                    self.assertIn("benizar-mermaid", render_text)
+                    self.assertIn("dry_run", render_text)
 
         asyncio.run(run_smoke())
 

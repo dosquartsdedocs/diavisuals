@@ -48,10 +48,12 @@ tests-install:
 	@rm -rf .tmp/install-venv
 	@$(PYTHON) -m venv .tmp/install-venv
 	@.tmp/install-venv/bin/python -m pip install --upgrade pip >/dev/null
-	@.tmp/install-venv/bin/python -m pip install --editable '.[mcp]' >/dev/null
+	@.tmp/install-venv/bin/python -m pip install '.[mcp]' >/dev/null
 	@.tmp/install-venv/bin/diavisuals --version
 	@.tmp/install-venv/bin/diavisuals install-check --command .tmp/install-venv/bin/diavisuals >/dev/null
 	@.tmp/install-venv/bin/diavisuals factory-manifest >/dev/null
+	@.tmp/install-venv/bin/diavisuals ensure-renderer >/dev/null
+	@.tmp/install-venv/bin/diavisuals --project "$(CURDIR)" render-diagram examples/benizar/mermaid/flowchart.mmd .tmp/install-render.svg >/dev/null
 
 mcp-env: $(MCP_ENV_STAMP)
 

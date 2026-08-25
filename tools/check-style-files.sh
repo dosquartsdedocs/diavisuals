@@ -26,6 +26,7 @@ require_file docs/versioning.md
 require_file docs/gallery.md
 require_file tools/render-gallery-docker.sh
 require_file tools/render-gallery-local.sh
+require_file tools/normalize-mermaid-svg.py
 require_file tools/style-diagram-source.sh
 require_file tools/list-style-families.sh
 require_file tools/resolve-style-name.sh
