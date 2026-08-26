@@ -1,25 +1,47 @@
 from __future__ import annotations
 
-import csv
 import base64
+import csv
 import hashlib
 import json
 import os
 import pathlib
 import re
-import shlex
 import shutil
+import stat
 import subprocess
 import sys
+import tempfile
+import threading
+import uuid
 from typing import Any
 
+import yaml
 
-DEFAULT_RELEASE = "v0.2.0"
-DEFAULT_COMPATIBILITY = "mermaid-11.4.2-plantuml-1.2026.1"
+from . import __version__
+
+DEFAULT_RELEASE = f"v{__version__}"
+DEFAULT_COMPATIBILITY = "mermaid-11.16.0-plantuml-1.2026.1"
 DEFAULT_FAMILY = "benizar"
 DEFAULT_REMOTE = "git@github.com:dosquartsdedocs/diavisuals.git"
+MCP_VERSION = "1.29.0"
 RENDERER_CONTAINER_LABEL = "io.context.mcp-factory=diavisuals"
+RENDERER_WORKSPACE_LABEL = "io.context.mcp-factory.workspace"
 HEX_COLOR_RE = re.compile(r"#[0-9A-Fa-f]{6}\b")
+STYLE_NAME_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*\Z")
+DOCKER_IMAGE_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._/@:-]*\Z")
+MAX_RENDERED_ARTIFACT_BYTES = 64 * 1024 * 1024
+MAX_INLINE_ARTIFACT_BYTES = 8 * 1024 * 1024
+MAX_DIAGRAM_SOURCE_BYTES = 4 * 1024 * 1024
+MAX_RENDER_DIAGNOSTIC_BYTES = 64 * 1024
+RENDER_TIMEOUT_SECONDS = 300
+RENDERER_FALLBACK_UID_GID = "65532:65532"
+RENDERER_MEMORY = "1g"
+RENDERER_CPUS = "2"
+RENDERER_PIDS_LIMIT = "256"
+RENDERER_NOFILE_LIMIT = "1024:1024"
+RENDERER_FSIZE_LIMIT = f"{MAX_RENDERED_ARTIFACT_BYTES}:{MAX_RENDERED_ARTIFACT_BYTES}"
+RENDERER_TMPFS = "/tmp:rw,nosuid,nodev,noexec,size=512m,mode=1777"
 MERMAID_TEXT_STARTS = {
     "architecture-beta",
     "block",
@@ -49,6 +71,26 @@ OUTPUT_MIME_TYPES = {
     "png": "image/png",
     "pdf": "application/pdf",
 }
+MCP_TOOL_NAMES = (
+    "style_inventory",
+    "style_audit",
+    "check_styles",
+    "compatibility_status",
+    "release_status",
+    "submodule_plan",
+    "render_diagram",
+    "render_diagram_text",
+    "update",
+    "factory_manifest",
+)
+MCP_RESOURCE_URIS = (
+    "diavisuals://agent-guide",
+    "diavisuals://styles",
+    "diavisuals://compatibility",
+    "diavisuals://style-audit",
+    "diavisuals://examples",
+    "diavisuals://factory-manifest",
+)
 
 
 def repo_dir() -> pathlib.Path:
@@ -68,6 +110,18 @@ def repo_dir() -> pathlib.Path:
     return checkout
 
 
+def source_checkout() -> pathlib.Path | None:
+    candidate = pathlib.Path(__file__).resolve().parents[2]
+    if (candidate / ".git").exists() and (candidate / "pyproject.toml").is_file():
+        return candidate
+    return None
+
+
+def factory_metadata_root() -> pathlib.Path:
+    checkout = source_checkout()
+    return checkout if checkout is not None else pathlib.Path(__file__).resolve().parent / "assets"
+
+
 def rel(path: pathlib.Path, root: pathlib.Path) -> str:
     try:
         return path.relative_to(root).as_posix()
@@ -76,26 +130,43 @@ def rel(path: pathlib.Path, root: pathlib.Path) -> str:
 
 
 def run(command: list[str], cwd: pathlib.Path | None = None, timeout: int = 120) -> dict[str, Any]:
-    completed = subprocess.run(
-        command,
-        cwd=str(cwd or repo_dir()),
-        text=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        check=False,
-        timeout=timeout,
-    )
+    try:
+        completed = subprocess.run(
+            command,
+            cwd=str(cwd or repo_dir()),
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=False,
+            timeout=timeout,
+        )
+    except FileNotFoundError as exc:
+        return {
+            "command": command,
+            "returncode": 127,
+            "stdout": "",
+            "stderr": str(exc),
+        }
+    except subprocess.TimeoutExpired as exc:
+        stdout = exc.stdout.decode("utf-8", errors="replace") if isinstance(exc.stdout, bytes) else exc.stdout or ""
+        stderr = exc.stderr.decode("utf-8", errors="replace") if isinstance(exc.stderr, bytes) else exc.stderr or ""
+        return {
+            "command": command,
+            "returncode": 124,
+            "stdout": stdout[-MAX_RENDER_DIAGNOSTIC_BYTES:],
+            "stderr": stderr[-MAX_RENDER_DIAGNOSTIC_BYTES:] or f"command timed out after {timeout} seconds",
+        }
     return {
         "command": command,
         "returncode": completed.returncode,
-        "stdout": completed.stdout,
-        "stderr": completed.stderr,
+        "stdout": completed.stdout[-MAX_RENDER_DIAGNOSTIC_BYTES:],
+        "stderr": completed.stderr[-MAX_RENDER_DIAGNOSTIC_BYTES:],
     }
 
 
 def git_head(path: pathlib.Path | None = None) -> str | None:
     root = path or repo_dir()
-    result = run(["git", "-C", str(root), "rev-parse", "--short", "HEAD"], cwd=root)
+    result = run(["git", "-C", str(root), "rev-parse", "HEAD"], cwd=root)
     if result["returncode"] == 0:
         return str(result["stdout"]).strip()
     return None
@@ -127,17 +198,29 @@ def renderer_profile(profile: str = DEFAULT_COMPATIBILITY) -> dict[str, Any]:
     values = compat.get("values", {}) if isinstance(compat.get("values"), dict) else {}
     image = str(values.get("DIAVISUALS_RENDER_IMAGE") or "").strip()
     dockerfile = str(values.get("DIAVISUALS_RENDER_DOCKERFILE") or "").strip()
+    plantuml_sha256 = str(values.get("PLANTUML_SHA256") or "").strip()
+    profile_status = str(values.get("DIAVISUALS_PROFILE_STATUS") or "").strip()
     issues: list[str] = []
     if not compat.get("ok"):
         issues.append(f"missing compatibility profile: {profile}")
+    if profile_status != "supported-renderer":
+        issues.append(f"compatibility profile is not renderable: {profile_status or 'status missing'}")
     if not image:
         issues.append("compatibility profile does not define DIAVISUALS_RENDER_IMAGE")
+    elif not DOCKER_IMAGE_RE.fullmatch(image):
+        issues.append("compatibility profile defines an invalid renderer image")
     if not dockerfile:
         issues.append("compatibility profile does not define DIAVISUALS_RENDER_DOCKERFILE")
+    if dockerfile and not re.fullmatch(r"[0-9A-Fa-f]{64}", plantuml_sha256):
+        issues.append("compatibility profile does not define a valid PLANTUML_SHA256")
 
-    dockerfile_path = repo_dir() / dockerfile if dockerfile else None
-    if dockerfile_path is not None and not dockerfile_path.is_file():
-        issues.append(f"renderer Dockerfile not found: {dockerfile}")
+    root = repo_dir().resolve()
+    dockerfile_path = (root / dockerfile).resolve() if dockerfile else None
+    if dockerfile_path is not None:
+        if not path_within(dockerfile_path, root):
+            issues.append(f"renderer Dockerfile is outside the asset root: {dockerfile}")
+        elif not dockerfile_path.is_file():
+            issues.append(f"renderer Dockerfile not found: {dockerfile}")
 
     return {
         "ok": not issues,
@@ -157,27 +240,44 @@ def build_renderer_image(profile: str = DEFAULT_COMPATIBILITY, *, dry_run: bool 
         return {"ok": False, "renderer": renderer}
 
     values = renderer["values"]
-    build_network = str(values.get("DIAVISUALS_RENDER_BUILD_NETWORK") or "").strip()
-    command = [
-        "docker",
-        "build",
-    ]
-    if build_network:
-        command.extend(["--network", build_network])
-    command.extend([
-        "-f",
-        renderer["dockerfile"],
-        "--build-arg",
-        f"MERMAID_CLI_VERSION={values.get('MERMAID_CLI_VERSION', '')}",
-        "--build-arg",
-        f"PLANTUML_VERSION={values.get('PLANTUML_VERSION', '')}",
-        "-t",
-        renderer["image"],
-        ".",
-    ])
+    def command_for(context: pathlib.Path | str) -> list[str]:
+        return [
+            "docker",
+            "build",
+            "--pull",
+            "-f",
+            str(pathlib.Path(context) / "Dockerfile"),
+            "--build-arg",
+            f"MERMAID_CLI_VERSION={values.get('MERMAID_CLI_VERSION', '')}",
+            "--build-arg",
+            f"PUPPETEER_VERSION={values.get('PUPPETEER_VERSION', '')}",
+            "--build-arg",
+            f"PLANTUML_VERSION={values.get('PLANTUML_VERSION', '')}",
+            "--build-arg",
+            f"PLANTUML_SHA256={values.get('PLANTUML_SHA256', '')}",
+            "-t",
+            renderer["image"],
+            str(context),
+        ]
+
     if dry_run:
+        command = command_for("/tmp/diavisuals-build-PRIVATE")
         return {"ok": True, "dry_run": True, "renderer": renderer, "command": command}
-    result = run(command, cwd=root, timeout=1800)
+    with tempfile.TemporaryDirectory(prefix="diavisuals-build-") as temporary:
+        context = pathlib.Path(temporary)
+        shutil.copyfile(renderer["dockerfile_path"], context / "Dockerfile")
+        docker_assets = pathlib.Path(renderer["dockerfile_path"]).parent
+        for package_file in ("package.json", "package-lock.json"):
+            source = docker_assets / package_file
+            if not source.is_file() or source.is_symlink():
+                return {
+                    "ok": False,
+                    "renderer": renderer,
+                    "message": f"renderer build asset is missing or unsafe: {package_file}",
+                }
+            shutil.copyfile(source, context / package_file)
+        command = command_for(context)
+        result = run(command, cwd=root, timeout=1800)
     return {"ok": result["returncode"] == 0, "renderer": renderer, "result": result}
 
 
@@ -204,12 +304,15 @@ def resolve_project_path(root: pathlib.Path, raw: str, *, must_exist: bool = Fal
     candidate = pathlib.Path(raw).expanduser()
     if not candidate.is_absolute():
         candidate = root / candidate
-    resolved = candidate.resolve()
-    if not path_within(resolved, root):
+    candidate = pathlib.Path(os.path.abspath(candidate))
+    if not path_within(candidate, root):
         raise ValueError(f"path is outside the project root: {raw}")
-    if must_exist and not resolved.is_file():
+    reject_symlink_components(candidate, root)
+    if must_exist and not candidate.is_file():
         raise FileNotFoundError(f"diagram source not found: {raw}")
-    return resolved
+    if not must_exist and candidate.exists() and not candidate.is_file():
+        raise ValueError(f"output path is not a regular file: {raw}")
+    return candidate
 
 
 def reject_symlink_components(path: pathlib.Path, root: pathlib.Path) -> None:
@@ -218,6 +321,42 @@ def reject_symlink_components(path: pathlib.Path, root: pathlib.Path) -> None:
         current /= part
         if current.is_symlink():
             raise ValueError(f"generated path contains a symlink: {rel(current, root)}")
+
+
+def _open_confined_parent(
+    root: pathlib.Path,
+    path: pathlib.Path,
+    *,
+    create: bool = False,
+) -> tuple[int, str]:
+    parts = path.relative_to(root).parts
+    if not parts:
+        raise ValueError("path must name a file inside the project root")
+
+    directory_flags = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) | getattr(os, "O_NOFOLLOW", 0)
+    descriptor = os.open(root, directory_flags)
+    try:
+        for part in parts[:-1]:
+            if create:
+                try:
+                    os.mkdir(part, mode=0o755, dir_fd=descriptor)
+                except FileExistsError:
+                    pass
+            child_descriptor = os.open(part, directory_flags, dir_fd=descriptor)
+            os.close(descriptor)
+            descriptor = child_descriptor
+        return descriptor, parts[-1]
+    except Exception:
+        os.close(descriptor)
+        raise
+
+
+def _open_confined_file(root: pathlib.Path, path: pathlib.Path) -> int:
+    parent_descriptor, name = _open_confined_parent(root, path)
+    try:
+        return os.open(name, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0), dir_fd=parent_descriptor)
+    finally:
+        os.close(parent_descriptor)
 
 
 def diagram_engine(input_path: pathlib.Path, requested: str = "auto") -> str:
@@ -248,38 +387,349 @@ def diagram_engine_from_text(diagram_text: str, requested: str = "auto") -> str:
 
 
 def resolve_style_name(engine: str, style: str) -> str:
-    root = repo_dir()
+    if not STYLE_NAME_RE.fullmatch(style):
+        raise ValueError("style or family must be a simple ASCII name")
+    root = repo_dir().resolve()
     if engine == "mermaid":
+        style_root = (root / "styles" / "mermaid").resolve()
+        if not path_within(style_root, root):
+            raise ValueError("Mermaid style directory is outside the package root")
         candidates = [style, f"{style.removesuffix('-mermaid')}-mermaid"]
         for candidate in candidates:
-            if (root / "styles" / "mermaid" / f"{candidate}.json").is_file():
+            path = (style_root / f"{candidate}.json").resolve()
+            if path_within(path, style_root) and path.is_file():
                 return candidate
     elif engine == "plantuml":
+        style_root = (root / "styles" / "plantuml").resolve()
+        if not path_within(style_root, root):
+            raise ValueError("PlantUML style directory is outside the package root")
         candidates = [style, f"{style.removesuffix('-plantuml')}-plantuml"]
         for candidate in candidates:
-            if (root / "styles" / "plantuml" / f"{candidate}.puml").is_file():
+            path = (style_root / f"{candidate}.puml").resolve()
+            if path_within(path, style_root) and path.is_file():
                 return candidate
     else:
         raise ValueError("engine must be mermaid or plantuml")
     raise FileNotFoundError(f"unknown {engine} style or family: {style}")
 
 
-def container_path(path: pathlib.Path, root: pathlib.Path) -> str:
-    return "/workspace/" + path.relative_to(root).as_posix()
+def renderer_user() -> str:
+    if hasattr(os, "getuid") and hasattr(os, "getgid"):
+        uid = os.getuid()
+        if uid > 0:
+            return f"{uid}:{os.getgid()}"
+    return RENDERER_FALLBACK_UID_GID
 
 
-def shell_join(parts: list[str]) -> str:
-    return " ".join(shlex.quote(part) for part in parts)
+def renderer_workspace_id(root: pathlib.Path) -> str:
+    return hashlib.sha256(str(root).encode("utf-8")).hexdigest()[:12]
 
 
-def validate_rendered_artifact(output: pathlib.Path, output_format: str) -> dict[str, Any]:
-    if not output.is_file():
-        return {"ok": False, "path": str(output), "reason": "output file was not created"}
-    size = output.stat().st_size
+def renderer_container_name(root: pathlib.Path) -> str:
+    return f"diavisuals-{renderer_workspace_id(root)}-{uuid.uuid4().hex[:12]}"
+
+
+def _copy_staged_asset(source: pathlib.Path, destination: pathlib.Path, asset_root: pathlib.Path, *, executable: bool = False) -> None:
+    resolved = source.resolve(strict=True)
+    if not path_within(resolved, asset_root) or not resolved.is_file():
+        raise ValueError(f"renderer asset is outside the package root: {source}")
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copyfile(resolved, destination)
+    destination.chmod(0o555 if executable else 0o444)
+
+
+def stage_renderer_bundle(
+    stage_root: pathlib.Path,
+    *,
+    source: pathlib.Path,
+    source_root: pathlib.Path | None = None,
+    source_data: bytes | None,
+    engine: str,
+    style_name: str,
+    output_format: str,
+) -> dict[str, pathlib.Path]:
+    asset_root = repo_dir().resolve()
+    bundle = stage_root / "bundle"
+    result = stage_root / "result"
+    bundle.mkdir(mode=0o755)
+    result.mkdir(mode=0o733)
+
+    source_suffix = ".mmd" if engine == "mermaid" else ".puml"
+    staged_source = bundle / "input" / f"source{source_suffix}"
+    staged_source.parent.mkdir(parents=True)
+    if source_data is None:
+        if source_root is None:
+            raise ValueError("source_root is required for file rendering")
+        source_descriptor = _open_confined_file(source_root, source)
+        try:
+            metadata = os.fstat(source_descriptor)
+            if not stat.S_ISREG(metadata.st_mode):
+                raise ValueError(f"diagram source is not a regular file: {source}")
+            if metadata.st_size > MAX_DIAGRAM_SOURCE_BYTES:
+                raise ValueError(
+                    f"diagram source exceeds the {MAX_DIAGRAM_SOURCE_BYTES}-byte limit"
+                )
+            with os.fdopen(source_descriptor, "rb", closefd=False) as source_handle:
+                source_bytes = source_handle.read(MAX_DIAGRAM_SOURCE_BYTES + 1)
+            if len(source_bytes) > MAX_DIAGRAM_SOURCE_BYTES:
+                raise ValueError(
+                    f"diagram source exceeds the {MAX_DIAGRAM_SOURCE_BYTES}-byte limit"
+                )
+            staged_source.write_bytes(source_bytes)
+        finally:
+            os.close(source_descriptor)
+    else:
+        if len(source_data) > MAX_DIAGRAM_SOURCE_BYTES:
+            raise ValueError(
+                f"diagram source exceeds the {MAX_DIAGRAM_SOURCE_BYTES}-byte limit"
+            )
+        staged_source.write_bytes(source_data)
+    staged_source.chmod(0o444)
+
+    tool_names = ["render-one.sh", "style-diagram-source.sh", "resolve-style-name.sh"]
+    if engine == "mermaid" and output_format == "svg":
+        tool_names.append("normalize-mermaid-svg.py")
+    for tool_name in tool_names:
+        _copy_staged_asset(
+            asset_root / "tools" / tool_name,
+            bundle / "tools" / tool_name,
+            asset_root,
+            executable=tool_name.endswith(".sh"),
+        )
+
+    if engine == "mermaid":
+        style_root = asset_root / "styles" / "mermaid"
+        _copy_staged_asset(
+            style_root / f"{style_name}.json",
+            bundle / "styles" / "mermaid" / f"{style_name}.json",
+            asset_root,
+        )
+        override_root = style_root / style_name
+        for override in sorted(override_root.glob("*.mmd")):
+            _copy_staged_asset(
+                override,
+                bundle / "styles" / "mermaid" / style_name / override.name,
+                asset_root,
+            )
+    else:
+        style_root = asset_root / "styles" / "plantuml"
+        _copy_staged_asset(
+            style_root / f"{style_name}.puml",
+            bundle / "styles" / "plantuml" / f"{style_name}.puml",
+            asset_root,
+        )
+        override_root = style_root / style_name
+        for override in sorted(override_root.glob("*.puml")):
+            _copy_staged_asset(
+                override,
+                bundle / "styles" / "plantuml" / style_name / override.name,
+                asset_root,
+            )
+
+    for directory in sorted((path for path in bundle.rglob("*") if path.is_dir()), reverse=True):
+        directory.chmod(0o555)
+    bundle.chmod(0o555)
+    return {
+        "bundle": bundle,
+        "result": result,
+        "cidfile": stage_root / "container.cid",
+        "artifact": result / f"artifact.{output_format}",
+    }
+
+
+def build_renderer_command(
+    *,
+    root: pathlib.Path,
+    renderer: dict[str, Any],
+    engine: str,
+    style_name: str,
+    output_format: str,
+    bundle: pathlib.Path,
+    result: pathlib.Path,
+    cidfile: pathlib.Path,
+    container_name: str,
+) -> list[str]:
+    workspace_id = renderer_workspace_id(root)
+    return [
+        "docker",
+        "run",
+        "--rm",
+        "--cidfile",
+        str(cidfile),
+        "--name",
+        container_name,
+        "--label",
+        RENDERER_CONTAINER_LABEL,
+        "--label",
+        f"{RENDERER_WORKSPACE_LABEL}={workspace_id}",
+        "--network",
+        "none",
+        "--read-only",
+        "--cap-drop",
+        "ALL",
+        "--security-opt",
+        "no-new-privileges=true",
+        "--user",
+        renderer_user(),
+        "--memory",
+        RENDERER_MEMORY,
+        "--memory-swap",
+        RENDERER_MEMORY,
+        "--cpus",
+        RENDERER_CPUS,
+        "--pids-limit",
+        RENDERER_PIDS_LIMIT,
+        "--ulimit",
+        f"nofile={RENDERER_NOFILE_LIMIT}",
+        "--ulimit",
+        f"fsize={RENDERER_FSIZE_LIMIT}",
+        "--tmpfs",
+        RENDERER_TMPFS,
+        "--mount",
+        f"type=bind,source={bundle},target=/diavisuals,readonly",
+        "--mount",
+        f"type=bind,source={result},target=/output",
+        "--workdir",
+        "/tmp",
+        "-e",
+        "HOME=/tmp/home",
+        "-e",
+        "XDG_CACHE_HOME=/tmp/cache",
+        "-e",
+        "JAVA_TOOL_OPTIONS=-Duser.home=/tmp/home",
+        "-e",
+        "PLANTUML_SECURITY_PROFILE=SANDBOX",
+        renderer["image"],
+        "bash",
+        "/diavisuals/tools/render-one.sh",
+        engine,
+        style_name,
+        output_format,
+    ]
+
+
+def _remove_renderer_container(container_name: str) -> dict[str, Any]:
+    remove = run(["docker", "container", "rm", "--force", container_name], timeout=30)
+    remove_error = str(remove.get("stderr") or "")
+    if remove["returncode"] == 0 or "No such container" in remove_error:
+        return {"ok": True, "container": container_name, "remove": remove}
+
+    inspect = run(["docker", "container", "inspect", container_name], timeout=30)
+    inspect_error = str(inspect.get("stderr") or "")
+    absent = inspect["returncode"] != 0 and (
+        "No such object" in inspect_error or "No such container" in inspect_error
+    )
+    return {
+        "ok": absent,
+        "container": container_name,
+        "remove": remove,
+        "inspect": inspect,
+    }
+
+
+def _run_renderer(
+    command: list[str],
+    *,
+    container_name: str,
+    cwd: pathlib.Path,
+    timeout: float = RENDER_TIMEOUT_SECONDS,
+) -> dict[str, Any]:
+    stdout_buffer = bytearray()
+    stderr_buffer = bytearray()
+
+    def drain(stream: Any, buffer: bytearray) -> None:
+        try:
+            while True:
+                chunk = stream.read(8192)
+                if not chunk:
+                    break
+                remaining = MAX_RENDER_DIAGNOSTIC_BYTES - len(buffer)
+                if remaining > 0:
+                    buffer.extend(chunk[:remaining])
+        finally:
+            stream.close()
+
+    try:
+        process = subprocess.Popen(
+            command,
+            cwd=str(cwd),
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+    except OSError as exc:
+        cleanup = _remove_renderer_container(container_name)
+        return {
+            "command": command,
+            "returncode": 127,
+            "stdout": "",
+            "stderr": str(exc)[:MAX_RENDER_DIAGNOSTIC_BYTES],
+            "timed_out": False,
+            "cleanup": cleanup,
+        }
+
+    assert process.stdout is not None
+    assert process.stderr is not None
+    threads = [
+        threading.Thread(target=drain, args=(process.stdout, stdout_buffer), daemon=True),
+        threading.Thread(target=drain, args=(process.stderr, stderr_buffer), daemon=True),
+    ]
+    for thread in threads:
+        thread.start()
+
+    timed_out = False
+    cleanup: dict[str, Any]
+    try:
+        process.wait(timeout=timeout)
+    except subprocess.TimeoutExpired:
+        timed_out = True
+        try:
+            process.kill()
+        except ProcessLookupError:
+            pass
+        process.wait()
+    finally:
+        cleanup = _remove_renderer_container(container_name)
+        for thread in threads:
+            thread.join(timeout=5)
+
+    stderr = bytes(stderr_buffer).decode("utf-8", errors="replace")
+    if timed_out:
+        timeout_message = f"\nrenderer timed out after {timeout} seconds"
+        stderr = (stderr + timeout_message)[:MAX_RENDER_DIAGNOSTIC_BYTES]
+    if not cleanup["ok"]:
+        cleanup_message = "\nrenderer container cleanup could not be verified"
+        stderr = (stderr + cleanup_message)[:MAX_RENDER_DIAGNOSTIC_BYTES]
+    return {
+        "command": command,
+        "returncode": process.returncode,
+        "stdout": bytes(stdout_buffer).decode("utf-8", errors="replace"),
+        "stderr": stderr,
+        "timed_out": timed_out,
+        "cleanup": cleanup,
+    }
+
+
+def _validate_artifact_descriptor(
+    descriptor: int,
+    output: pathlib.Path,
+    output_format: str,
+) -> dict[str, Any]:
+    metadata = os.fstat(descriptor)
+    if not stat.S_ISREG(metadata.st_mode):
+        return {"ok": False, "path": str(output), "reason": "output is not a regular file"}
+    size = metadata.st_size
     if size <= 0:
         return {"ok": False, "path": str(output), "bytes": size, "reason": "output file is empty"}
+    if size > MAX_RENDERED_ARTIFACT_BYTES:
+        return {
+            "ok": False,
+            "path": str(output),
+            "bytes": size,
+            "reason": f"output exceeds the {MAX_RENDERED_ARTIFACT_BYTES}-byte limit",
+        }
 
-    header = output.read_bytes()[:4096]
+    os.lseek(descriptor, 0, os.SEEK_SET)
+    header = os.read(descriptor, 4096)
     if output_format == "pdf" and not header.startswith(b"%PDF-"):
         return {"ok": False, "path": str(output), "bytes": size, "reason": "output is not a PDF"}
     if output_format == "png" and not header.startswith(b"\x89PNG\r\n\x1a\n"):
@@ -287,6 +737,91 @@ def validate_rendered_artifact(output: pathlib.Path, output_format: str) -> dict
     if output_format == "svg" and b"<svg" not in header.lower():
         return {"ok": False, "path": str(output), "bytes": size, "reason": "output is not an SVG"}
     return {"ok": True, "path": str(output), "bytes": size, "format": output_format}
+
+
+def validate_rendered_artifact(output: pathlib.Path, output_format: str) -> dict[str, Any]:
+    try:
+        descriptor = os.open(output, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0))
+    except (FileNotFoundError, OSError) as exc:
+        reason = "output file was not created" if isinstance(exc, FileNotFoundError) else "output is not a regular file"
+        return {"ok": False, "path": str(output), "reason": reason}
+    try:
+        return _validate_artifact_descriptor(descriptor, output, output_format)
+    finally:
+        os.close(descriptor)
+
+
+def atomic_publish_artifact(
+    staged: pathlib.Path,
+    output: pathlib.Path,
+    root: pathlib.Path,
+    output_format: str,
+) -> dict[str, Any]:
+    staged_descriptor = os.open(staged, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0))
+    parent_descriptor = -1
+    descriptor = -1
+    temporary_created = False
+    try:
+        staged_check = _validate_artifact_descriptor(staged_descriptor, staged, output_format)
+        if not staged_check["ok"]:
+            return staged_check
+
+        reject_symlink_components(output, root)
+        parent_descriptor, output_name = _open_confined_parent(root, output, create=True)
+        temporary_name = f".{output_name}.{uuid.uuid4().hex}.tmp"
+        try:
+            metadata = os.stat(output_name, dir_fd=parent_descriptor, follow_symlinks=False)
+        except FileNotFoundError:
+            metadata = None
+        if metadata is not None and not stat.S_ISREG(metadata.st_mode):
+            raise ValueError(f"output path is not a regular file: {rel(output, root)}")
+
+        descriptor = os.open(
+            temporary_name,
+            os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0),
+            0o600,
+            dir_fd=parent_descriptor,
+        )
+        temporary_created = True
+        os.lseek(staged_descriptor, 0, os.SEEK_SET)
+        destination_handle = os.fdopen(descriptor, "wb")
+        descriptor = -1
+        with destination_handle as destination, os.fdopen(
+            staged_descriptor, "rb", closefd=False
+        ) as source_handle:
+            shutil.copyfileobj(source_handle, destination)
+            destination.flush()
+            os.fsync(destination.fileno())
+            os.fchmod(destination.fileno(), 0o644)
+        os.replace(
+            temporary_name,
+            output_name,
+            src_dir_fd=parent_descriptor,
+            dst_dir_fd=parent_descriptor,
+        )
+        temporary_created = False
+        os.fsync(parent_descriptor)
+
+        published_descriptor = os.open(
+            output_name,
+            os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0),
+            dir_fd=parent_descriptor,
+        )
+        try:
+            return _validate_artifact_descriptor(published_descriptor, output, output_format)
+        finally:
+            os.close(published_descriptor)
+    finally:
+        os.close(staged_descriptor)
+        if descriptor >= 0:
+            os.close(descriptor)
+        if temporary_created and parent_descriptor >= 0:
+            try:
+                os.unlink(temporary_name, dir_fd=parent_descriptor)
+            except FileNotFoundError:
+                pass
+        if parent_descriptor >= 0:
+            os.close(parent_descriptor)
 
 
 def resolve_output_format(output: pathlib.Path | None, requested: str | None) -> str:
@@ -319,10 +854,54 @@ def render_diagram(
     dry_run: bool = False,
 ) -> dict[str, Any]:
     root = pathlib.Path(project_root).expanduser().resolve()
-    source = resolve_project_path(root, input_path, must_exist=True)
+    if not root.is_dir():
+        raise FileNotFoundError(f"project root not found: {project_root}")
+    source = resolve_project_path(root, input_path)
     output = resolve_project_path(root, output_path)
+    try:
+        source_descriptor = _open_confined_file(root, source)
+    except FileNotFoundError as exc:
+        raise FileNotFoundError(f"diagram source not found: {input_path}") from exc
+    try:
+        source_metadata = os.fstat(source_descriptor)
+    finally:
+        os.close(source_descriptor)
+    if not stat.S_ISREG(source_metadata.st_mode):
+        raise ValueError(f"diagram source is not a regular file: {input_path}")
+    if source_metadata.st_size > MAX_DIAGRAM_SOURCE_BYTES:
+        raise ValueError(f"diagram source exceeds the {MAX_DIAGRAM_SOURCE_BYTES}-byte limit")
     resolved_engine = diagram_engine(source, engine)
+    if source == output:
+        raise ValueError("input and output paths must be different")
     output_format = resolve_output_format(output, output_format)
+
+    return _render_diagram_source(
+        root,
+        source=source,
+        source_data=None,
+        output=output,
+        resolved_engine=resolved_engine,
+        family=family,
+        style=style,
+        profile=profile,
+        output_format=output_format,
+        dry_run=dry_run,
+    )
+
+
+def _render_diagram_source(
+    root: pathlib.Path,
+    *,
+    source: pathlib.Path,
+    source_data: bytes | None,
+    output: pathlib.Path,
+    resolved_engine: str,
+    family: str,
+    style: str | None,
+    profile: str,
+    output_format: str,
+    dry_run: bool,
+) -> dict[str, Any]:
 
     renderer = renderer_profile(profile)
     if not renderer["ok"]:
@@ -330,83 +909,19 @@ def render_diagram(
 
     style_query = (style or "").strip() or family
     style_name = resolve_style_name(resolved_engine, style_query)
-    cache_suffix = ".mmd" if resolved_engine == "mermaid" else ".puml"
-    cache_key = hashlib.sha256(
-        "\0".join((str(source), str(output), resolved_engine, style_name, profile)).encode("utf-8")
-    ).hexdigest()[:12]
-    styled = root / ".cache" / "diavisuals" / resolved_engine / f"{output.stem}-{cache_key}{cache_suffix}"
-    puppeteer = root / ".cache" / "diavisuals" / "puppeteer.json"
-    style_source = [
-        "/diavisuals/tools/style-diagram-source.sh",
-        resolved_engine,
-        style_name,
-        container_path(source, root),
-        container_path(styled, root),
-    ]
-    mkdirs = ["mkdir", "-p", container_path(output.parent, root), container_path(styled.parent, root), container_path(puppeteer.parent, root)]
-    if resolved_engine == "mermaid":
-        mermaid_config = f"/diavisuals/styles/mermaid/{style_name}.json"
-        render_command = [
-            "mmdc",
-            "-i",
-            container_path(styled, root),
-            "-o",
-            container_path(output, root),
-            "-c",
-            mermaid_config,
-            "-p",
-            container_path(puppeteer, root),
-        ]
-        if output_format == "pdf":
-            render_command.append("--pdfFit")
-        steps = [
-            shell_join(mkdirs),
-            "printf '%s\\n' '{\"args\":[\"--no-sandbox\",\"--disable-setuid-sandbox\",\"--disable-dev-shm-usage\"]}' > "
-            + shlex.quote(container_path(puppeteer, root)),
-            shell_join(style_source),
-            shell_join(render_command),
-        ]
-        if output_format == "svg":
-            steps.append(shell_join(["python3", "/diavisuals/tools/normalize-mermaid-svg.py", container_path(output, root)]))
-        script = " && ".join(steps)
-    else:
-        expected = output.parent / f"{styled.stem}.{output_format}"
-        script = " && ".join(
-            [
-                shell_join(mkdirs),
-                shell_join(style_source),
-                shell_join(["plantuml", f"-t{output_format}", "-o", container_path(output.parent, root), container_path(styled, root)]),
-                f"test -f {shlex.quote(container_path(expected, root))}",
-                f"if [ {shlex.quote(container_path(expected, root))} != {shlex.quote(container_path(output, root))} ]; then mv {shlex.quote(container_path(expected, root))} {shlex.quote(container_path(output, root))}; fi",
-            ]
-        )
-
-    uid_gid = f"{os.getuid()}:{os.getgid()}" if hasattr(os, "getuid") and hasattr(os, "getgid") else "1000:1000"
-    command = [
-        "docker",
-        "run",
-        "--rm",
-        "--label",
-        RENDERER_CONTAINER_LABEL,
-        "--user",
-        uid_gid,
-        "-e",
-        "HOME=/tmp",
-        "-e",
-        "JAVA_TOOL_OPTIONS=-Duser.home=/tmp",
-        "-e",
-        "PLANTUML_SECURITY_PROFILE=SANDBOX",
-        "-v",
-        f"{root}:/workspace",
-        "-v",
-        f"{repo_dir()}:/diavisuals:ro",
-        "-w",
-        "/workspace",
-        renderer["image"],
-        "bash",
-        "-lc",
-        script,
-    ]
+    private_stage = pathlib.Path("/tmp/diavisuals-render-PRIVATE")
+    container_name = renderer_container_name(root)
+    command = build_renderer_command(
+        root=root,
+        renderer=renderer,
+        engine=resolved_engine,
+        style_name=style_name,
+        output_format=output_format,
+        bundle=private_stage / "bundle",
+        result=private_stage / "result",
+        cidfile=private_stage / "container.cid",
+        container_name=container_name,
+    )
     payload: dict[str, Any] = {
         "ok": True,
         "project": str(root),
@@ -417,7 +932,8 @@ def render_diagram(
         "profile": profile.removesuffix(".env"),
         "input": rel(source, root),
         "output": rel(output, root),
-        "styled_source": rel(styled, root),
+        "output_format": output_format,
+        "staging": "private",
         "renderer": renderer,
         "command": command,
     }
@@ -428,33 +944,99 @@ def render_diagram(
     image = ensure_renderer_image(profile)
     if not image.get("ok"):
         return {**payload, "ok": False, "image": image}
-    output.parent.mkdir(parents=True, exist_ok=True)
-    styled.parent.mkdir(parents=True, exist_ok=True)
-    completed = run(command, cwd=root, timeout=300)
-    artifact_check = validate_rendered_artifact(output, output_format)
+
+    with tempfile.TemporaryDirectory(prefix="diavisuals-render-") as temporary_root:
+        stage = stage_renderer_bundle(
+            pathlib.Path(temporary_root),
+            source=source,
+            source_root=root,
+            source_data=source_data,
+            engine=resolved_engine,
+            style_name=style_name,
+            output_format=output_format,
+        )
+        container_name = renderer_container_name(root)
+        command = build_renderer_command(
+            root=root,
+            renderer=renderer,
+            engine=resolved_engine,
+            style_name=style_name,
+            output_format=output_format,
+            bundle=stage["bundle"],
+            result=stage["result"],
+            cidfile=stage["cidfile"],
+            container_name=container_name,
+        )
+        payload["command"] = command
+        completed = _run_renderer(
+            command,
+            container_name=container_name,
+            cwd=root,
+            timeout=RENDER_TIMEOUT_SECONDS,
+        )
+        artifact_check = validate_rendered_artifact(stage["artifact"], output_format)
+        if completed["returncode"] == 0 and completed["cleanup"]["ok"] and artifact_check["ok"]:
+            try:
+                artifact_check = atomic_publish_artifact(stage["artifact"], output, root, output_format)
+            except (OSError, ValueError) as exc:
+                artifact_check = {
+                    "ok": False,
+                    "path": str(output),
+                    "reason": f"failed to publish output atomically: {exc}",
+                }
     payload.update({
         "image": image,
         "result": completed,
         "artifact_check": artifact_check,
-        "ok": completed["returncode"] == 0 and artifact_check["ok"],
+        "ok": completed["returncode"] == 0 and completed["cleanup"]["ok"] and artifact_check["ok"],
     })
     return payload
 
 
 def diagram_artifact_payload(output: pathlib.Path, root: pathlib.Path, output_format: str, *, include_data: bool) -> dict[str, Any]:
+    reject_symlink_components(output, root)
     payload: dict[str, Any] = {
         "path": rel(output, root),
         "mime_type": OUTPUT_MIME_TYPES.get(output_format, "application/octet-stream"),
         "format": output_format,
-        "exists": output.is_file(),
+        "exists": False,
     }
-    if not output.is_file():
+    try:
+        descriptor = _open_confined_file(root, output)
+    except FileNotFoundError:
         return payload
+    except OSError as exc:
+        raise ValueError(f"generated path could not be opened safely: {rel(output, root)}") from exc
 
-    data = output.read_bytes()
-    payload["bytes"] = len(data)
-    if not include_data:
+    metadata = os.fstat(descriptor)
+    if not stat.S_ISREG(metadata.st_mode):
+        os.close(descriptor)
         return payload
+    payload["exists"] = True
+
+    size = metadata.st_size
+    payload["bytes"] = size
+    if not include_data:
+        os.close(descriptor)
+        return payload
+    if size > MAX_INLINE_ARTIFACT_BYTES:
+        payload.update({
+            "data_included": False,
+            "reason": f"artifact exceeds the {MAX_INLINE_ARTIFACT_BYTES}-byte inline response limit",
+        })
+        os.close(descriptor)
+        return payload
+    try:
+        data = os.read(descriptor, MAX_INLINE_ARTIFACT_BYTES + 1)
+    finally:
+        os.close(descriptor)
+    if len(data) > MAX_INLINE_ARTIFACT_BYTES:
+        payload.update({
+            "data_included": False,
+            "reason": f"artifact exceeds the {MAX_INLINE_ARTIFACT_BYTES}-byte inline response limit",
+        })
+        return payload
+    payload["data_included"] = True
     if output_format == "svg":
         payload["svg"] = data.decode("utf-8", errors="replace")
     else:
@@ -476,6 +1058,8 @@ def render_diagram_text(
     dry_run: bool = False,
 ) -> dict[str, Any]:
     root = pathlib.Path(project_root).expanduser().resolve()
+    if not root.is_dir():
+        raise FileNotFoundError(f"project root not found: {project_root}")
     requested_output = resolve_project_path(root, output_path) if output_path else None
     output_format = resolve_output_format(requested_output, output_format)
     resolved_engine = diagram_engine_from_text(diagram_text, engine)
@@ -490,18 +1074,20 @@ def render_diagram_text(
     }
     digest = hashlib.sha256(json.dumps(digest_values, sort_keys=True).encode("utf-8")).hexdigest()[:16]
     source = root / ".cache" / "diavisuals" / "inline" / resolved_engine / f"{digest}{source_suffix}"
-    output = requested_output or root / ".cache" / "diavisuals" / "outputs" / resolved_engine / f"{digest}.{output_format}"
+    default_output = root / ".cache" / "diavisuals" / "outputs" / resolved_engine / f"{digest}.{output_format}"
+    output = requested_output or resolve_project_path(root, rel(default_output, root))
+    source_data = (diagram_text.rstrip() + "\n").encode("utf-8")
+    if len(source_data) > MAX_DIAGRAM_SOURCE_BYTES:
+        raise ValueError(
+            f"diagram source exceeds the {MAX_DIAGRAM_SOURCE_BYTES}-byte limit"
+        )
 
-    reject_symlink_components(source, root)
-    source.parent.mkdir(parents=True, exist_ok=True)
-    reject_symlink_components(source, root)
-    source.write_text(diagram_text.rstrip() + "\n", encoding="utf-8")
-
-    rendered = render_diagram(
+    rendered = _render_diagram_source(
         root,
-        input_path=rel(source, root),
-        output_path=rel(output, root),
-        engine=resolved_engine,
+        source=source,
+        source_data=source_data,
+        output=output,
+        resolved_engine=resolved_engine,
         family=family,
         style=style,
         profile=profile,
@@ -567,7 +1153,7 @@ def style_inventory() -> dict[str, Any]:
             families.append(family)
     items = [style_family_item(root, family) for family in families]
     return {
-        "ok": all(item["ok"] for item in items),
+        "ok": bool(items) and all(item["ok"] for item in items),
         "repo": str(root),
         "git_head": git_head(root),
         "git_tag": git_tag(root),
@@ -585,6 +1171,7 @@ def compatibility_status(profile: str = DEFAULT_COMPATIBILITY) -> dict[str, Any]
     profiles = []
     for path in sorted(compat_root.glob("*.env")):
         values = parse_env(path)
+        profile_status = values.get("DIAVISUALS_PROFILE_STATUS") or "unspecified"
         profiles.append(
             {
                 "name": path.stem,
@@ -592,15 +1179,21 @@ def compatibility_status(profile: str = DEFAULT_COMPATIBILITY) -> dict[str, Any]
                 "mermaid": values.get("MERMAID_CLI_VERSION"),
                 "plantuml": values.get("PLANTUML_VERSION"),
                 "family": values.get("DIAVISUALS_FAMILY"),
+                "status": profile_status,
+                "renderable": profile_status == "supported-renderer",
                 "mermaid_types": values.get("MERMAID_TYPES"),
                 "plantuml_types": values.get("PLANTUML_TYPES"),
             }
         )
+    values = parse_env(profile_file)
+    profile_status = values.get("DIAVISUALS_PROFILE_STATUS") or "unspecified"
     return {
         "ok": profile_file.is_file(),
         "requested": requested,
         "requested_path": rel(profile_file, root),
-        "values": parse_env(profile_file),
+        "status": profile_status,
+        "renderable": profile_status == "supported-renderer",
+        "values": values,
         "profiles": profiles,
     }
 
@@ -750,16 +1343,34 @@ def check_styles(profile: str = DEFAULT_COMPATIBILITY, family: str = DEFAULT_FAM
 
 
 def release_status(release: str = DEFAULT_RELEASE) -> dict[str, Any]:
-    root = repo_dir()
-    tag_result = run(["git", "-C", str(root), "rev-parse", "--verify", f"refs/tags/{release}"], cwd=root)
+    root = source_checkout()
+    if root is None:
+        return {
+            "ok": release == DEFAULT_RELEASE,
+            "source": "package",
+            "requested": release,
+            "current_tag": DEFAULT_RELEASE,
+            "current_matches_release": release == DEFAULT_RELEASE,
+        }
+    tag_result = run(
+        ["git", "-C", str(root), "rev-parse", "--verify", f"refs/tags/{release}^{{commit}}"],
+        cwd=root,
+    )
     current_tag = git_tag(root)
+    status = run(["git", "-C", str(root), "status", "--porcelain"], cwd=root)
+    requested_sha = str(tag_result["stdout"]).strip() if tag_result["returncode"] == 0 else None
+    current_head = git_head(root)
+    clean = status["returncode"] == 0 and not status["stdout"].strip()
+    matches = current_tag == release and current_head == requested_sha
     return {
-        "ok": tag_result["returncode"] == 0,
+        "ok": release == DEFAULT_RELEASE and matches and clean,
+        "source": "checkout",
         "requested": release,
-        "requested_sha": str(tag_result["stdout"]).strip() if tag_result["returncode"] == 0 else None,
-        "current_head": git_head(root),
+        "requested_sha": requested_sha,
+        "current_head": current_head,
         "current_tag": current_tag,
-        "current_matches_release": current_tag == release,
+        "current_matches_release": matches,
+        "clean": clean,
     }
 
 
@@ -785,12 +1396,44 @@ def submodule_plan(
 
 
 def update_factory(dry_run: bool = False) -> dict[str, Any]:
-    root = repo_dir()
+    root = source_checkout()
+    if root is None:
+        uv = shutil.which("uv")
+        if not uv:
+            return {
+                "ok": False,
+                "source": "package",
+                "dry_run": dry_run,
+                "message": "uv is required to update an installed diavisuals package",
+            }
+        command = [
+            uv,
+            "pip",
+            "install",
+            "--python",
+            sys.executable,
+            "--upgrade",
+            "diavisuals[mcp]",
+        ]
+        if dry_run:
+            return {
+                "ok": True,
+                "source": "package",
+                "dry_run": True,
+                "command": command,
+            }
+        result = run(command, cwd=pathlib.Path.cwd(), timeout=300)
+        return {
+            "ok": result["returncode"] == 0,
+            "source": "package",
+            "result": result,
+        }
     if dry_run:
         return {
             "ok": True,
+            "source": "checkout",
             "dry_run": True,
-            "command": ["git", "pull", "--ff-only"],
+            "command": ["git", "-C", str(root), "pull", "--ff-only"],
             "repo": str(root),
         }
     status = run(["git", "-C", str(root), "status", "--porcelain"], cwd=root)
@@ -803,8 +1446,52 @@ def update_factory(dry_run: bool = False) -> dict[str, Any]:
     result = run(["git", "-C", str(root), "pull", "--ff-only"], cwd=root, timeout=300)
     return {
         "ok": result["returncode"] == 0,
+        "source": "checkout",
         "result": result,
         "git_head": git_head(root),
+    }
+
+
+def initialize_project(project_root: str | pathlib.Path = ".") -> dict[str, Any]:
+    root = pathlib.Path(project_root).expanduser().resolve()
+    if not root.is_dir():
+        raise FileNotFoundError(f"project root not found: {project_root}")
+    cache = resolve_project_path(root, ".cache/diavisuals")
+    cache.mkdir(parents=True, exist_ok=True)
+    reject_symlink_components(cache, root)
+    return {"ok": True, "project": str(root), "created": [rel(cache, root)]}
+
+
+def down_factory(project_root: str | pathlib.Path = ".") -> dict[str, Any]:
+    root = pathlib.Path(project_root).expanduser().resolve()
+    docker = shutil.which("docker")
+    if not docker:
+        return {"ok": True, "containers": [], "message": "Docker is unavailable"}
+    workspace_id = renderer_workspace_id(root)
+    listed = run(
+        [
+            docker,
+            "container",
+            "ls",
+            "--all",
+            "--quiet",
+            "--filter",
+            f"label={RENDERER_CONTAINER_LABEL}",
+            "--filter",
+            f"label={RENDERER_WORKSPACE_LABEL}={workspace_id}",
+        ],
+        cwd=root,
+    )
+    if listed["returncode"] != 0:
+        return {"ok": False, "containers": [], "result": listed}
+    containers = listed["stdout"].split()
+    if not containers:
+        return {"ok": True, "containers": []}
+    removed = run([docker, "container", "rm", "--force", *containers], cwd=root)
+    return {
+        "ok": removed["returncode"] == 0,
+        "containers": containers,
+        "result": removed,
     }
 
 
@@ -838,15 +1525,68 @@ def vscode_client_config(project: str = "${workspaceFolder}", command: str = "")
 
 
 def factory_manifest() -> dict[str, Any]:
-    root = repo_dir()
+    checkout = source_checkout()
+    if checkout is not None:
+        prefix = [
+            "bash",
+            "${factoryRoot}/scripts/factory-launcher",
+            "${workspaceFolder}",
+        ]
+        transport = [*prefix, "serve"]
+        commands = {
+            name: [*prefix, operation]
+            for name, operation in (
+                ("build", "build"),
+                ("init", "init"),
+                ("check", "check"),
+                ("tests", "tests"),
+                ("smoke", "smoke"),
+                ("down", "down"),
+                ("update", "update"),
+                ("release_status", "release-status"),
+                ("install_check", "install-check"),
+                ("factory_check", "factory-check"),
+                ("install_codex_mcp", "install-codex-mcp"),
+                ("serve", "serve"),
+                ("client_config", "client-config"),
+                ("manifest", "manifest"),
+                ("styles", "styles"),
+                ("audit", "audit"),
+                ("render", "render"),
+                ("render_text", "render-text"),
+            )
+        }
+    else:
+        cli = ["diavisuals", "--project", "${workspaceFolder}"]
+        transport = [*cli, "mcp", "serve"]
+        commands = {
+            "build": [*cli, "ensure-renderer"],
+            "init": [*cli, "init"],
+            "check": [*cli, "lifecycle-check"],
+            "tests": [*cli, "self-test"],
+            "smoke": [*cli, "mcp-smoke"],
+            "down": [*cli, "down"],
+            "update": [*cli, "update"],
+            "release_status": [*cli, "release-status"],
+            "install_check": [*cli, "install-check"],
+            "factory_check": [*cli, "factory-check"],
+            "install_codex_mcp": [*cli, "install-codex-mcp"],
+            "serve": transport,
+            "client_config": [*cli, "mcp", "client-config"],
+            "manifest": [*cli, "factory-manifest"],
+            "styles": [*cli, "style-inventory"],
+            "audit": [*cli, "style-audit"],
+            "render": [*cli, "render-diagram"],
+            "render_text": [*cli, "render-diagram-text"],
+        }
     return {
         "ok": True,
+        "schema_version": 1,
         "name": "diavisuals",
         "kind": "codex-mcp-factory",
-        "version": "0.2.0",
-        "description": "Shared diagram style registry and Docker renderer for Mermaid and PlantUML.",
-        "factory": str(root),
-        "git_head": git_head(root),
+        "version": __version__,
+        "description": "Workspace-confined diagram styles and hardened Docker rendering for Mermaid and PlantUML.",
+        "repository": "https://github.com/dosquartsdedocs/diavisuals",
         "workspace_rule": {
             "consumer_root": ".",
             "source_paths": [],
@@ -854,57 +1594,106 @@ def factory_manifest() -> dict[str, Any]:
             "init_creates": [".cache/diavisuals"],
             "allowed_external_writes": [],
         },
-        "commands": {
-            "build": ["make", "mcp-build"],
-            "init": ["make", "mcp-init"],
-            "check": ["diavisuals", "check"],
-            "smoke": ["make", "mcp-smoke"],
-            "down": ["make", "mcp-down"],
-            "update": ["diavisuals", "update"],
-            "install_codex_mcp": ["diavisuals", "install-codex-mcp"],
-            "client_config": ["diavisuals", "mcp", "client-config"],
-            "serve": ["make", "mcp-stdio"],
-            "manifest": ["diavisuals", "factory-manifest"],
-            "styles": ["diavisuals", "style-inventory"],
-            "audit": ["diavisuals", "style-audit"],
-            "render": ["diavisuals", "render-diagram"],
-            "render_text": ["diavisuals", "render-diagram-text"],
+        "runtime": {
+            "kind": "python",
+            "package_manager": "uv",
+            "package": "diavisuals[mcp]",
+            "module": "diavisuals",
+            "mcp_version": MCP_VERSION,
         },
-        "mcp": {
-            "server_name": "diavisuals",
-            "transport": "stdio",
-            "command": mcp_stdio_command("${workspaceFolder}"),
-            "resources": [
-                "diavisuals://agent-guide",
-                "diavisuals://styles",
-                "diavisuals://compatibility",
-                "diavisuals://style-audit",
-                "diavisuals://examples",
-                "diavisuals://factory-manifest",
-            ],
-            "tools": [
-                "style_inventory",
-                "style_audit",
-                "check_styles",
-                "compatibility_status",
-                "release_status",
-                "submodule_plan",
-                "render_diagram",
-                "render_diagram_text",
-                "update",
-                "factory_manifest",
-            ],
+        "transport": {"type": "stdio", "command": transport},
+        "commands": commands,
+        "discovery": {
+            "file": "mcp-factory.yml",
+            "suggested_scan_roots": ["~/git"],
+            "checkout_required_for_make_lifecycle": checkout is not None,
         },
         "release": {
             "default": DEFAULT_RELEASE,
             "compatibility": DEFAULT_COMPATIBILITY,
             "family": DEFAULT_FAMILY,
         },
+        "contracts": {
+            "mcp_errors": "typed-is-error-result",
+            "consumer_root_fixed_at_startup": True,
+            "container_consumer_mount": "none",
+            "renderer_staging": "selected-input-and-style-assets-only",
+        },
+        "mcp": {
+            "server_name": "diavisuals",
+            "transport": "stdio",
+            "consumer_root_fixed_at_startup": True,
+            "required_tools": list(MCP_TOOL_NAMES),
+            "resources": list(MCP_RESOURCE_URIS),
+        },
+    }
+
+
+def factory_check(project_root: str | pathlib.Path = ".") -> dict[str, Any]:
+    issues: list[str] = []
+    assets = repo_dir()
+    required_assets = [
+        assets / "docker/compat-renderer.Dockerfile",
+        assets / "docker/package.json",
+        assets / "docker/package-lock.json",
+        assets / "tools/render-one.sh",
+        assets / "styles/mermaid/benizar-mermaid.json",
+        assets / "styles/plantuml/benizar-plantuml.puml",
+    ]
+    issues.extend(
+        f"packaged asset is missing: {rel(path, assets)}"
+        for path in required_assets
+        if not path.is_file()
+    )
+    static_path = factory_metadata_root() / "mcp-factory.yml"
+    static: dict[str, Any] = {}
+    if not static_path.is_file():
+        issues.append("factory discovery manifest is missing")
+    else:
+        try:
+            loaded = yaml.safe_load(static_path.read_text(encoding="utf-8"))
+            if not isinstance(loaded, dict):
+                raise ValueError("factory discovery manifest must be a mapping")
+            static = loaded
+            dynamic = factory_manifest()
+            for key in (
+                "schema_version",
+                "name",
+                "kind",
+                "version",
+                "description",
+                "repository",
+                "workspace_rule",
+                "runtime",
+                "transport",
+                "commands",
+                "discovery",
+                "release",
+                "contracts",
+                "mcp",
+            ):
+                if static.get(key) != dynamic.get(key):
+                    issues.append(f"static factory manifest does not match {key}")
+        except (OSError, ValueError, yaml.YAMLError) as exc:
+            issues.append(str(exc))
+    styles = check_styles()
+    issues.extend(styles["issues"])
+    root = pathlib.Path(project_root).expanduser().resolve()
+    if not root.is_dir():
+        issues.append(f"consumer project root does not exist: {project_root}")
+    return {
+        "ok": not issues,
+        "issues": issues,
+        "project": str(root),
+        "assets": {"root": str(assets), "manifest": str(static_path)},
+        "styles": styles,
     }
 
 
 def install_check(command: str = "diavisuals") -> dict[str, Any]:
     resolved = shutil.which(command)
+    if not resolved and pathlib.Path(command).is_file():
+        resolved = str(pathlib.Path(command).resolve())
     if resolved:
         resolved = str(pathlib.Path(resolved).resolve())
     result = None
@@ -918,16 +1707,34 @@ def install_check(command: str = "diavisuals") -> dict[str, Any]:
             and result
             and result["returncode"] == 0
             and mcp_dependency
+            and str(result["stdout"]).strip() == f"diavisuals {__version__}"
             and mcp_dependency["returncode"] == 0
+            and str(mcp_dependency["stdout"]).strip() == MCP_VERSION
         ),
         "command": command,
         "resolved": resolved,
         "version_result": result,
         "mcp_dependency": mcp_dependency,
+        "mcp_version": str(mcp_dependency["stdout"]).strip() if mcp_dependency else None,
+        "mcp_version_matches": bool(
+            mcp_dependency and str(mcp_dependency["stdout"]).strip() == MCP_VERSION
+        ),
         "install_hints": [
-            "python3 -m venv .cache/diavisuals/mcp-venv",
-            ".cache/diavisuals/mcp-venv/bin/python -m pip install --editable '.[mcp]'",
+            "uv sync --locked --extra mcp",
+            "uv tool install 'diavisuals[mcp]'",
         ],
+    }
+
+
+def lifecycle_check(
+    project_root: str | pathlib.Path = ".", command: str = "diavisuals"
+) -> dict[str, Any]:
+    install = install_check(command)
+    factory = factory_check(project_root)
+    return {
+        "ok": install["ok"] and factory["ok"],
+        "install": install,
+        "factory": factory,
     }
 
 
@@ -954,7 +1761,12 @@ def check_mcp_dependency(command_path: str) -> dict[str, Any]:
             "command": [command_path],
         }
     return run(
-        [python, "-c", "from mcp.server.fastmcp import FastMCP; print('ok')"],
+        [
+            python,
+            "-c",
+            "from importlib.metadata import version; "
+            "from mcp.server.fastmcp import FastMCP; print(version('mcp'))",
+        ],
         cwd=repo_dir(),
         timeout=30,
     )

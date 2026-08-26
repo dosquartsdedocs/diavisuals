@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import argparse
+import asyncio
 import json
+import os
 import pathlib
 import shutil
 import subprocess
@@ -13,14 +15,20 @@ from .registry import (
     DEFAULT_COMPATIBILITY,
     DEFAULT_FAMILY,
     DEFAULT_RELEASE,
+    MCP_RESOURCE_URIS,
+    MCP_TOOL_NAMES,
     build_renderer_image,
     check_styles,
     client_config,
     compatibility_status,
+    down_factory,
     ensure_renderer_image,
+    factory_check,
     factory_manifest,
+    initialize_project,
     install_check,
     json_dumps,
+    lifecycle_check,
     release_status,
     render_diagram,
     render_diagram_text,
@@ -34,6 +42,30 @@ from .registry import (
 
 def print_payload(payload: Any) -> None:
     print(json_dumps(payload))
+
+
+def _tool_result_ok(result: Any) -> bool:
+    if result.isError:
+        return False
+    candidates: list[Any] = []
+    structured = getattr(result, "structuredContent", None)
+    if structured is not None:
+        candidates.append(structured)
+    for item in result.content:
+        text = getattr(item, "text", "")
+        if not text:
+            continue
+        try:
+            candidates.append(json.loads(text))
+        except json.JSONDecodeError:
+            continue
+    for candidate in candidates:
+        if not isinstance(candidate, dict):
+            continue
+        payload = candidate.get("result", candidate)
+        if isinstance(payload, dict) and "ok" in payload:
+            return payload["ok"] is True
+    return False
 
 
 def cmd_style_inventory(args: argparse.Namespace) -> int:
@@ -90,6 +122,89 @@ def cmd_factory_manifest(args: argparse.Namespace) -> int:
 
 def cmd_install_check(args: argparse.Namespace) -> int:
     payload = install_check(args.command)
+    print_payload(payload)
+    return 0 if payload.get("ok") else 1
+
+
+def cmd_init(args: argparse.Namespace) -> int:
+    payload = initialize_project(args.project)
+    print_payload(payload)
+    return 0
+
+
+def cmd_factory_check(args: argparse.Namespace) -> int:
+    payload = factory_check(args.project)
+    print_payload(payload)
+    return 0 if payload.get("ok") else 1
+
+
+def cmd_lifecycle_check(args: argparse.Namespace) -> int:
+    payload = lifecycle_check(args.project, args.command)
+    print_payload(payload)
+    return 0 if payload.get("ok") else 1
+
+
+def cmd_self_test(args: argparse.Namespace) -> int:
+    payload = factory_check(args.project)
+    print_payload(payload)
+    return 0 if payload.get("ok") else 1
+
+
+def cmd_down(args: argparse.Namespace) -> int:
+    payload = down_factory(args.project)
+    print_payload(payload)
+    return 0 if payload.get("ok") else 1
+
+
+def cmd_mcp_smoke(args: argparse.Namespace) -> int:
+    async def smoke() -> dict[str, Any]:
+        from mcp import ClientSession, StdioServerParameters
+        from mcp.client.stdio import stdio_client
+
+        parameters = StdioServerParameters(
+            command=sys.executable,
+            args=[
+                "-m",
+                "diavisuals.cli",
+                "--project",
+                str(pathlib.Path(args.project).expanduser().resolve()),
+                "mcp",
+                "serve",
+            ],
+            env=dict(os.environ),
+        )
+        async with stdio_client(parameters) as (read, write):
+            async with ClientSession(read, write) as session:
+                await session.initialize()
+                resources = await session.list_resources()
+                tools = await session.list_tools()
+                inventory = await session.call_tool("style_inventory", {})
+                rendered = await session.call_tool(
+                    "render_diagram_text",
+                    {
+                        "diagram_text": "flowchart TD\n  A --> B\n",
+                        "include_data": False,
+                        "dry_run": True,
+                    },
+                )
+                resource_uris = [str(resource.uri) for resource in resources.resources]
+                tool_names = [tool.name for tool in tools.tools]
+                missing_resources = sorted(set(MCP_RESOURCE_URIS) - set(resource_uris))
+                missing_tools = sorted(set(MCP_TOOL_NAMES) - set(tool_names))
+                inventory_ok = _tool_result_ok(inventory)
+                render_ok = _tool_result_ok(rendered)
+                ok = inventory_ok and render_ok and not missing_resources and not missing_tools
+                return {
+                    "ok": ok,
+                    "resources": resource_uris,
+                    "tools": tool_names,
+                    "missing_resources": missing_resources,
+                    "missing_tools": missing_tools,
+                    "inventory_ok": inventory_ok,
+                    "render_ok": render_ok,
+                }
+
+    payload = asyncio.run(smoke())
     print_payload(payload)
     return 0 if payload.get("ok") else 1
 
@@ -248,6 +363,25 @@ def build_parser() -> argparse.ArgumentParser:
     install_check_parser = subcommands.add_parser("install-check", help="Check whether the CLI is installed as an executable tool")
     install_check_parser.add_argument("--command", default="diavisuals")
     install_check_parser.set_defaults(func=cmd_install_check)
+
+    init_parser = subcommands.add_parser("init", help="Initialize the consumer cache directory")
+    init_parser.set_defaults(func=cmd_init)
+
+    factory_check_parser = subcommands.add_parser("factory-check", help="Validate packaged assets and factory metadata")
+    factory_check_parser.set_defaults(func=cmd_factory_check)
+
+    lifecycle_check_parser = subcommands.add_parser("lifecycle-check", help="Validate the CLI installation and factory contract")
+    lifecycle_check_parser.add_argument("--command", default="diavisuals")
+    lifecycle_check_parser.set_defaults(func=cmd_lifecycle_check)
+
+    self_test_parser = subcommands.add_parser("self-test", help="Run package-safe deterministic checks")
+    self_test_parser.set_defaults(func=cmd_self_test)
+
+    down_parser = subcommands.add_parser("down", help="Remove renderer containers owned by this consumer workspace")
+    down_parser.set_defaults(func=cmd_down)
+
+    smoke_parser = subcommands.add_parser("mcp-smoke", help="Run a real MCP stdio protocol smoke test")
+    smoke_parser.set_defaults(func=cmd_mcp_smoke)
 
     renderer_parser = subcommands.add_parser("build-renderer", help="Build the Docker renderer image for Mermaid and PlantUML")
     renderer_parser.add_argument("--profile", default=DEFAULT_COMPATIBILITY)

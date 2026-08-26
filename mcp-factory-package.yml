@@ -1,0 +1,77 @@
+schema_version: 1
+name: diavisuals
+kind: codex-mcp-factory
+version: 0.3.0
+description: Workspace-confined diagram styles and hardened Docker rendering for Mermaid and PlantUML.
+repository: https://github.com/dosquartsdedocs/diavisuals
+workspace_rule:
+  consumer_root: .
+  source_paths: []
+  generated_paths:
+    - .cache/diavisuals
+  init_creates:
+    - .cache/diavisuals
+  allowed_external_writes: []
+runtime:
+  kind: python
+  package_manager: uv
+  package: diavisuals[mcp]
+  module: diavisuals
+  mcp_version: 1.29.0
+transport:
+  type: stdio
+  command: [diavisuals, --project, "${workspaceFolder}", mcp, serve]
+commands:
+  build: [diavisuals, --project, "${workspaceFolder}", ensure-renderer]
+  init: [diavisuals, --project, "${workspaceFolder}", init]
+  check: [diavisuals, --project, "${workspaceFolder}", lifecycle-check]
+  tests: [diavisuals, --project, "${workspaceFolder}", self-test]
+  smoke: [diavisuals, --project, "${workspaceFolder}", mcp-smoke]
+  down: [diavisuals, --project, "${workspaceFolder}", down]
+  update: [diavisuals, --project, "${workspaceFolder}", update]
+  release_status: [diavisuals, --project, "${workspaceFolder}", release-status]
+  install_check: [diavisuals, --project, "${workspaceFolder}", install-check]
+  factory_check: [diavisuals, --project, "${workspaceFolder}", factory-check]
+  install_codex_mcp: [diavisuals, --project, "${workspaceFolder}", install-codex-mcp]
+  serve: [diavisuals, --project, "${workspaceFolder}", mcp, serve]
+  client_config: [diavisuals, --project, "${workspaceFolder}", mcp, client-config]
+  manifest: [diavisuals, --project, "${workspaceFolder}", factory-manifest]
+  styles: [diavisuals, --project, "${workspaceFolder}", style-inventory]
+  audit: [diavisuals, --project, "${workspaceFolder}", style-audit]
+  render: [diavisuals, --project, "${workspaceFolder}", render-diagram]
+  render_text: [diavisuals, --project, "${workspaceFolder}", render-diagram-text]
+discovery:
+  file: mcp-factory.yml
+  suggested_scan_roots: [~/git]
+  checkout_required_for_make_lifecycle: false
+release:
+  default: v0.3.0
+  compatibility: mermaid-11.16.0-plantuml-1.2026.1
+  family: benizar
+contracts:
+  mcp_errors: typed-is-error-result
+  consumer_root_fixed_at_startup: true
+  container_consumer_mount: none
+  renderer_staging: selected-input-and-style-assets-only
+mcp:
+  server_name: diavisuals
+  transport: stdio
+  consumer_root_fixed_at_startup: true
+  required_tools:
+    - style_inventory
+    - style_audit
+    - check_styles
+    - compatibility_status
+    - release_status
+    - submodule_plan
+    - render_diagram
+    - render_diagram_text
+    - update
+    - factory_manifest
+  resources:
+    - diavisuals://agent-guide
+    - diavisuals://styles
+    - diavisuals://compatibility
+    - diavisuals://style-audit
+    - diavisuals://examples
+    - diavisuals://factory-manifest

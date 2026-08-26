@@ -1,5 +1,8 @@
 {
   "theme": "base",
+  "handDrawnSeed": 42,
+  "deterministicIds": true,
+  "deterministicIDSeed": "diavisuals-benizar",
   "htmlLabels": false,
   "themeVariables": {
     "fontFamily": "Latin Modern Sans, DejaVu Sans, Arial, sans-serif",

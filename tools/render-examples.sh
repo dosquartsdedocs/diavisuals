@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
+shopt -s nullglob
 
 out_dir=${1:-dist/examples}
 repo_root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
@@ -41,7 +42,12 @@ make_plantuml_readme_source() {
 printf 'engine,type,status,output\n' > "$out_dir/manifest.csv"
 
 if command -v mmdc >/dev/null 2>&1; then
-  for src in examples/benizar/mermaid/*.mmd; do
+  mermaid_sources=("examples/$family/mermaid/"*.mmd)
+  if [[ ${#mermaid_sources[@]} -eq 0 ]]; then
+    printf 'no Mermaid examples found for family: %s\n' "$family" >&2
+    exit 1
+  fi
+  for src in "${mermaid_sources[@]}"; do
     name=$(basename "$src" .mmd)
     if contains_type "$name" "${MERMAID_UNSUPPORTED_TYPES:-}"; then
       write_manifest mermaid "$name" unsupported ""
@@ -66,7 +72,12 @@ else
 fi
 
 if command -v plantuml >/dev/null 2>&1; then
-  for src in examples/benizar/plantuml/*.puml; do
+  plantuml_sources=("examples/$family/plantuml/"*.puml)
+  if [[ ${#plantuml_sources[@]} -eq 0 ]]; then
+    printf 'no PlantUML examples found for family: %s\n' "$family" >&2
+    exit 1
+  fi
+  for src in "${plantuml_sources[@]}"; do
     name=$(basename "$src" .puml)
     if contains_type "$name" "${PLANTUML_UNSUPPORTED_TYPES:-}"; then
       write_manifest plantuml "$name" unsupported ""

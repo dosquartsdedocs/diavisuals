@@ -1,6 +1,6 @@
 # diavisuals
 
-![release](https://img.shields.io/badge/release-v0.2.0-blue) ![Mermaid CLI](https://img.shields.io/badge/Mermaid_CLI-11.4.2-ff3670) ![PlantUML](https://img.shields.io/badge/PlantUML-1.2026.1-2a5db0) ![family](https://img.shields.io/badge/family-benizar-2a5db0)
+![release](https://img.shields.io/badge/release-v0.3.0-blue) ![Mermaid CLI](https://img.shields.io/badge/Mermaid_CLI-11.16.0-ff3670) ![PlantUML](https://img.shields.io/badge/PlantUML-1.2026.1-2a5db0) ![family](https://img.shields.io/badge/family-benizar-2a5db0)
 
 `diavisuals` centralizes shared Mermaid and PlantUML visual styles and the
 Docker renderer used by dosquartsdedocs projects. The goal is to stop copying
@@ -36,6 +36,12 @@ The repository has two style layers:
 That split matters because a quadrant chart, a sequence diagram, and a treemap need different visual decisions.
 
 ## Quick Use
+
+Install the package and MCP dependencies with `uv`:
+
+```bash
+uv tool install 'diavisuals[mcp]'
+```
 
 Build the shared renderer image once:
 
@@ -86,6 +92,12 @@ and it is also the shared rendering engine for Mermaid and PlantUML diagrams.
 Consumer repositories should call this MCP/CLI instead of carrying Mermaid,
 PlantUML, Chromium, or Java dependencies themselves.
 
+Each render copies only the selected source and style assets into private
+staging. The renderer receives no consumer-workspace mount and no network,
+runs with a read-only root and resource limits, and writes only to a private
+result directory. The host validates that result and atomically publishes it
+inside the startup-fixed consumer root.
+
 ```bash
 diavisuals style-inventory
 diavisuals style-audit
@@ -110,17 +122,17 @@ launchers such as ContExt. A launcher can scan sibling Git repositories under
 
 ## Rendered Gallery
 
-The default gallery is generated for the current release target `v0.2.0`. That short release tag points to the compatibility profile `mermaid-11.4.2-plantuml-1.2026.1`: Mermaid CLI 11.4.2 and PlantUML 1.2026.1, matching the modern diagram support used by `my-slides-vault`. The full manifest is [`docs/gallery/benizar/mermaid-11.4.2-plantuml-1.2026.1/manifest.csv`](docs/gallery/benizar/mermaid-11.4.2-plantuml-1.2026.1/manifest.csv).
+The default gallery is generated for the current release target `v0.3.0`. That short release tag points to the compatibility profile `mermaid-11.16.0-plantuml-1.2026.1`: Mermaid CLI 11.16.0 and PlantUML 1.2026.1. The full manifest is [`docs/gallery/benizar/mermaid-11.16.0-plantuml-1.2026.1/manifest.csv`](docs/gallery/benizar/mermaid-11.16.0-plantuml-1.2026.1/manifest.csv).
 
 README previews are generated as PNG thumbnails from the same examples as the full SVG gallery. Mermaid SVG output uses native text where supported and preserves inter-word `tspan` whitespace for print and conversion tools.
 
 | Mermaid workflow | Mermaid board | Mermaid decision matrix |
 | --- | --- | --- |
-| <img src="docs/gallery/benizar/mermaid-11.4.2-plantuml-1.2026.1/readme/mermaid-flowchart.png" width="300"> | <img src="docs/gallery/benizar/mermaid-11.4.2-plantuml-1.2026.1/readme/mermaid-kanban.png" width="300"> | <img src="docs/gallery/benizar/mermaid-11.4.2-plantuml-1.2026.1/readme/mermaid-quadrantchart.png" width="300"> |
+| <img src="docs/gallery/benizar/mermaid-11.16.0-plantuml-1.2026.1/readme/mermaid-flowchart.png" width="300"> | <img src="docs/gallery/benizar/mermaid-11.16.0-plantuml-1.2026.1/readme/mermaid-kanban.png" width="300"> | <img src="docs/gallery/benizar/mermaid-11.16.0-plantuml-1.2026.1/readme/mermaid-quadrantchart.png" width="300"> |
 
 | PlantUML sequence | PlantUML files | PlantUML activity |
 | --- | --- | --- |
-| <img src="docs/gallery/benizar/mermaid-11.4.2-plantuml-1.2026.1/readme/plantuml-sequence.png" width="300"> | <img src="docs/gallery/benizar/mermaid-11.4.2-plantuml-1.2026.1/readme/plantuml-files.png" width="300"> | <img src="docs/gallery/benizar/mermaid-11.4.2-plantuml-1.2026.1/readme/plantuml-activity.png" width="300"> |
+| <img src="docs/gallery/benizar/mermaid-11.16.0-plantuml-1.2026.1/readme/plantuml-sequence.png" width="300"> | <img src="docs/gallery/benizar/mermaid-11.16.0-plantuml-1.2026.1/readme/plantuml-files.png" width="300"> | <img src="docs/gallery/benizar/mermaid-11.16.0-plantuml-1.2026.1/readme/plantuml-activity.png" width="300"> |
 
 Regenerate the gallery with:
 
@@ -128,7 +140,7 @@ Regenerate the gallery with:
 make render-gallery
 ```
 
-The older `mermaid-10.9.1-plantuml-1.2020.02` profile remains available to document what the previous Ubuntu-package-based paper image rendered.
+The older `mermaid-11.4.2-plantuml-1.2026.1` and `mermaid-10.9.1-plantuml-1.2020.02` profiles remain as record-only compatibility history. They cannot build renderers from the current checkout.
 
 ## Compatibility Profiles
 
@@ -149,6 +161,7 @@ This repository does not build full documents. It provides style assets, example
 
 ```bash
 make check
+make lint
 make tests
 ```
 
@@ -170,3 +183,5 @@ Optional packaging and MCP smoke tests:
 make tests-install
 make tests-mcp
 ```
+
+See `SECURITY.md` for the renderer threat model and host Docker boundary.
