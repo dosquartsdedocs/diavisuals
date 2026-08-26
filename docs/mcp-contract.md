@@ -16,6 +16,11 @@ The default generated workspace path is `.cache/diavisuals`. File-rendering
 tools may also write to an explicit `output_path`, but that path must stay
 inside the consumer workspace passed as `${workspaceFolder}` / `--project`.
 
+The consumer root is fixed when the MCP starts. Rendering stages only the
+selected source and style files outside that workspace. Containers receive no
+consumer mount and no network, and artifacts are validated before atomic
+publication. Failed renders preserve an existing output.
+
 ## Resources
 
 | Resource | Description |
@@ -42,11 +47,15 @@ inside the consumer workspace passed as `${workspaceFolder}` / `--project`.
 | `update` | Update the factory checkout with a fast-forward pull. |
 | `factory_manifest` | Return the factory discovery manifest. |
 
+Tool payloads with `ok: false` are returned as MCP tool errors (`isError:
+true`) rather than successful protocol results. The JSON payload is available
+in both text content and `structuredContent` for clients that need diagnostics.
+
 ## ContExt Discovery
 
 External launchers can scan sibling Git repositories for `mcp-factory.yml`.
 The file exposes stable JSON commands for checks, updates, Codex MCP
 registration, client configuration, server launch, and renderer teardown.
-`commands.down` force-removes only containers carrying the exact
-`io.context.mcp-factory=diavisuals` label; it preserves renderer images,
-volumes, and unrelated containers and is safe to run repeatedly.
+`commands.down` force-removes only containers carrying both the exact
+`io.context.mcp-factory=diavisuals` label and the current workspace label; it
+preserves renderer images, volumes, other workspaces, and unrelated containers.

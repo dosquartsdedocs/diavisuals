@@ -1,0 +1,92 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+FACTORY_ROOT="$(CDPATH= cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd -P)"
+PROJECT_ROOT="${1:?consumer project root is required}"
+OPERATION="${2:?factory operation is required}"
+shift 2
+CLI="${FACTORY_ROOT}/.venv/bin/diavisuals"
+
+bootstrap() {
+  uv --directory "${FACTORY_ROOT}" sync --locked --extra dev --extra mcp --quiet
+}
+
+case "${OPERATION}" in
+  build)
+    bootstrap
+    "${CLI}" --project "${PROJECT_ROOT}" install-check --command "${CLI}" >/dev/null
+    exec "${CLI}" --project "${PROJECT_ROOT}" ensure-renderer "$@"
+    ;;
+  init)
+    bootstrap
+    exec "${CLI}" --project "${PROJECT_ROOT}" init "$@"
+    ;;
+  check)
+    bootstrap
+    exec "${CLI}" --project "${PROJECT_ROOT}" lifecycle-check --command "${CLI}" "$@"
+    ;;
+  tests)
+    bootstrap
+    exec make --no-print-directory -C "${FACTORY_ROOT}" tests
+    ;;
+  smoke)
+    bootstrap
+    exec make --no-print-directory -C "${FACTORY_ROOT}" mcp-smoke PROJECT="${PROJECT_ROOT}"
+    ;;
+  down)
+    bootstrap
+    exec "${CLI}" --project "${PROJECT_ROOT}" down "$@"
+    ;;
+  update)
+    bootstrap
+    exec "${CLI}" --project "${PROJECT_ROOT}" update "$@"
+    ;;
+  release-status)
+    bootstrap
+    exec "${CLI}" --project "${PROJECT_ROOT}" release-status "$@"
+    ;;
+  install-check)
+    bootstrap
+    exec "${CLI}" --project "${PROJECT_ROOT}" install-check --command "${CLI}" "$@"
+    ;;
+  factory-check)
+    bootstrap
+    exec "${CLI}" --project "${PROJECT_ROOT}" factory-check "$@"
+    ;;
+  install-codex-mcp)
+    bootstrap
+    exec "${CLI}" --project "${PROJECT_ROOT}" install-codex-mcp --project-root "${PROJECT_ROOT}" --command "${CLI}" "$@"
+    ;;
+  serve)
+    bootstrap
+    exec "${CLI}" --project "${PROJECT_ROOT}" mcp serve
+    ;;
+  client-config)
+    bootstrap
+    exec "${CLI}" --project "${PROJECT_ROOT}" mcp client-config --command "${CLI}" "$@"
+    ;;
+  manifest)
+    bootstrap
+    exec "${CLI}" --project "${PROJECT_ROOT}" factory-manifest "$@"
+    ;;
+  styles)
+    bootstrap
+    exec "${CLI}" --project "${PROJECT_ROOT}" style-inventory "$@"
+    ;;
+  audit)
+    bootstrap
+    exec "${CLI}" --project "${PROJECT_ROOT}" style-audit "$@"
+    ;;
+  render)
+    bootstrap
+    exec "${CLI}" --project "${PROJECT_ROOT}" render-diagram "$@"
+    ;;
+  render-text)
+    bootstrap
+    exec "${CLI}" --project "${PROJECT_ROOT}" render-diagram-text "$@"
+    ;;
+  *)
+    printf 'Unknown factory operation: %s\n' "${OPERATION}" >&2
+    exit 2
+    ;;
+esac

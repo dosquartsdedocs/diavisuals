@@ -12,4 +12,5 @@ dist/
 *.png
 *.svg
 !docs/gallery/**/*.svg
+!docs/gallery/**/*.png
 .DS_Store

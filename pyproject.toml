@@ -1,25 +1,65 @@
 [build-system]
-requires = ["hatchling>=1.21"]
+requires = ["hatchling==1.27.0"]
 build-backend = "hatchling.build"
 
 [project]
 name = "diavisuals"
-version = "0.2.0"
-description = "Shared diagram visual style registry with MCP-friendly tooling."
+version = "0.3.0"
+description = "Workspace-confined Mermaid and PlantUML rendering through hardened Docker."
 readme = "README.md"
 requires-python = ">=3.10"
 authors = [
   { name = "dosquartsdedocs" }
 ]
 keywords = ["diagrams", "mermaid", "plantuml", "mcp", "styles"]
-dependencies = []
+classifiers = [
+  "Operating System :: POSIX :: Linux",
+  "Programming Language :: Python :: 3 :: Only",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Topic :: Multimedia :: Graphics",
+]
+dependencies = ["PyYAML==6.0.3"]
+
+[project.urls]
+Repository = "https://github.com/dosquartsdedocs/diavisuals"
+Issues = "https://github.com/dosquartsdedocs/diavisuals/issues"
+Security = "https://github.com/dosquartsdedocs/diavisuals/security/policy"
 
 [project.optional-dependencies]
-mcp = ["mcp>=1.0,<2"]
-dev = ["hatchling>=1.21"]
+mcp = ["mcp==1.29.0"]
+dev = [
+  "build==1.3.0",
+  "hatchling==1.27.0",
+  "ruff==0.16.0",
+]
 
 [project.scripts]
 diavisuals = "diavisuals.cli:main"
+
+[tool.hatch.build.targets.sdist]
+include = [
+  "/AGENTS.md",
+  "/CHANGELOG.md",
+  "/Makefile",
+  "/README.md",
+  "/SECURITY.md",
+  "/compat",
+  "/docker",
+  "/docs",
+  "/examples",
+  "/mcp-factory-package.yml",
+  "/mcp-factory.yml",
+  "/pyproject.toml",
+  "/scripts",
+  "/src",
+  "/styles",
+  "/tests",
+  "/tokens",
+  "/tools",
+  "/uv.lock",
+]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/diavisuals"]
@@ -32,6 +72,14 @@ packages = ["src/diavisuals"]
 "docs" = "diavisuals/assets/docs"
 "docker" = "diavisuals/assets/docker"
 "tools" = "diavisuals/assets/tools"
-"mcp-factory.yml" = "diavisuals/assets/mcp-factory.yml"
+"mcp-factory-package.yml" = "diavisuals/assets/mcp-factory.yml"
 "AGENTS.md" = "diavisuals/assets/AGENTS.md"
 "Makefile" = "diavisuals/assets/Makefile"
+
+[tool.ruff]
+line-length = 120
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "I"]
+ignore = ["E501"]

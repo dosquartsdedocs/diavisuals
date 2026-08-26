@@ -1,0 +1,9 @@
+{
+  "name": "diavisuals-renderer-dependencies",
+  "private": true,
+  "version": "0.3.0",
+  "dependencies": {
+    "@mermaid-js/mermaid-cli": "11.16.0",
+    "puppeteer": "25.9.0"
+  }
+}

@@ -1,8 +1,9 @@
----
+schema_version: 1
 name: diavisuals
 kind: codex-mcp-factory
-version: 0.2.0
-description: Shared diagram style registry and Docker renderer for Mermaid and PlantUML.
+version: 0.3.0
+description: Workspace-confined diagram styles and hardened Docker rendering for Mermaid and PlantUML.
+repository: https://github.com/dosquartsdedocs/diavisuals
 workspace_rule:
   consumer_root: .
   source_paths: []
@@ -13,77 +14,49 @@ workspace_rule:
   allowed_external_writes: []
 runtime:
   kind: python
-  package_manager: pip
-  package: diavisuals
+  package_manager: uv
+  package: diavisuals[mcp]
   module: diavisuals
+  mcp_version: 1.29.0
 transport:
   type: stdio
-  command:
-    - make
-    - -C
-    - '${factoryRoot}'
-    - mcp-stdio
-    - 'PROJECT=${workspaceFolder}'
+  command: [bash, "${factoryRoot}/scripts/factory-launcher", "${workspaceFolder}", serve]
 commands:
-  build:
-    - make
-    - mcp-build
-  init:
-    - make
-    - mcp-init
-  check:
-    - make
-    - mcp-check
-  smoke:
-    - make
-    - mcp-smoke
-  down:
-    - make
-    - mcp-down
-  update:
-    - diavisuals
-    - update
-  install_codex_mcp:
-    - diavisuals
-    - install-codex-mcp
-  client_config:
-    - diavisuals
-    - mcp
-    - client-config
-  serve:
-    - make
-    - mcp-stdio
-  manifest:
-    - diavisuals
-    - factory-manifest
-  styles:
-    - diavisuals
-    - style-inventory
-  audit:
-    - diavisuals
-    - style-audit
-  render:
-    - diavisuals
-    - render-diagram
-  render_text:
-    - diavisuals
-    - render-diagram-text
+  build: [bash, "${factoryRoot}/scripts/factory-launcher", "${workspaceFolder}", build]
+  init: [bash, "${factoryRoot}/scripts/factory-launcher", "${workspaceFolder}", init]
+  check: [bash, "${factoryRoot}/scripts/factory-launcher", "${workspaceFolder}", check]
+  tests: [bash, "${factoryRoot}/scripts/factory-launcher", "${workspaceFolder}", tests]
+  smoke: [bash, "${factoryRoot}/scripts/factory-launcher", "${workspaceFolder}", smoke]
+  down: [bash, "${factoryRoot}/scripts/factory-launcher", "${workspaceFolder}", down]
+  update: [bash, "${factoryRoot}/scripts/factory-launcher", "${workspaceFolder}", update]
+  release_status: [bash, "${factoryRoot}/scripts/factory-launcher", "${workspaceFolder}", release-status]
+  install_check: [bash, "${factoryRoot}/scripts/factory-launcher", "${workspaceFolder}", install-check]
+  factory_check: [bash, "${factoryRoot}/scripts/factory-launcher", "${workspaceFolder}", factory-check]
+  install_codex_mcp: [bash, "${factoryRoot}/scripts/factory-launcher", "${workspaceFolder}", install-codex-mcp]
+  serve: [bash, "${factoryRoot}/scripts/factory-launcher", "${workspaceFolder}", serve]
+  client_config: [bash, "${factoryRoot}/scripts/factory-launcher", "${workspaceFolder}", client-config]
+  manifest: [bash, "${factoryRoot}/scripts/factory-launcher", "${workspaceFolder}", manifest]
+  styles: [bash, "${factoryRoot}/scripts/factory-launcher", "${workspaceFolder}", styles]
+  audit: [bash, "${factoryRoot}/scripts/factory-launcher", "${workspaceFolder}", audit]
+  render: [bash, "${factoryRoot}/scripts/factory-launcher", "${workspaceFolder}", render]
+  render_text: [bash, "${factoryRoot}/scripts/factory-launcher", "${workspaceFolder}", render-text]
 discovery:
-  suggested_scan_roots:
-    - ~/git
-  notes:
-    - ContExt can scan sibling Git repositories for mcp-factory.yml.
-    - Consumers should declare this factory as an MCP dependency instead of copying Mermaid or PlantUML render engines.
+  file: mcp-factory.yml
+  suggested_scan_roots: [~/git]
+  checkout_required_for_make_lifecycle: true
+release:
+  default: v0.3.0
+  compatibility: mermaid-11.16.0-plantuml-1.2026.1
+  family: benizar
+contracts:
+  mcp_errors: typed-is-error-result
+  consumer_root_fixed_at_startup: true
+  container_consumer_mount: none
+  renderer_staging: selected-input-and-style-assets-only
 mcp:
   server_name: diavisuals
   transport: stdio
-  resources:
-    - diavisuals://agent-guide
-    - diavisuals://styles
-    - diavisuals://compatibility
-    - diavisuals://style-audit
-    - diavisuals://examples
-    - diavisuals://factory-manifest
+  consumer_root_fixed_at_startup: true
   required_tools:
     - style_inventory
     - style_audit
@@ -94,8 +67,11 @@ mcp:
     - render_diagram
     - render_diagram_text
     - update
-release:
-  default: v0.2.0
-  compatibility: mermaid-11.4.2-plantuml-1.2026.1
-  family: benizar
----
+    - factory_manifest
+  resources:
+    - diavisuals://agent-guide
+    - diavisuals://styles
+    - diavisuals://compatibility
+    - diavisuals://style-audit
+    - diavisuals://examples
+    - diavisuals://factory-manifest

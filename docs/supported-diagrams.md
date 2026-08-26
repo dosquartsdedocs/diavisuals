@@ -40,4 +40,4 @@
 | salt | `styles/plantuml/benizar-plantuml/salt.puml` | `examples/benizar/plantuml/salt.puml` |
 | files | `styles/plantuml/benizar-plantuml/files.puml` | `examples/benizar/plantuml/files.puml` |
 
-Support is profile-specific. For example, `files`, `json`, and `yaml` require a modern PlantUML profile such as `mermaid-11.4.2-plantuml-1.2026.1`. Release tags remain short SemVer names such as `v0.1.0`; the profile records the engine pair.
+Support is profile-specific. For example, `files`, `json`, and `yaml` require a modern PlantUML profile such as `mermaid-11.16.0-plantuml-1.2026.1`. Release tags remain short SemVer names such as `v0.1.0`; the profile records the engine pair.
