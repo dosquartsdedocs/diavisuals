@@ -285,6 +285,7 @@ class RegistryTest(unittest.TestCase):
 
     def test_gallery_renderer_uses_factory_container_label(self) -> None:
         script = (REPO_ROOT / "tools" / "render-gallery-docker.sh").read_text(encoding="utf-8")
+        examples = (REPO_ROOT / "tools" / "render-examples.sh").read_text(encoding="utf-8")
         publisher = (REPO_ROOT / "tools" / "publish-gallery.py").read_text(encoding="utf-8")
         self.assertIn("--label io.context.mcp-factory=diavisuals", script)
         self.assertIn("--network none", script)
@@ -296,7 +297,32 @@ class RegistryTest(unittest.TestCase):
         self.assertIn("timeout --signal=TERM --kill-after=10s", script)
         self.assertIn("publish-gallery.py", script)
         self.assertIn("gallery output must not be a symlink", publisher)
-        self.assertIn("libc.renameat2", publisher)
+        self.assertIn("requires libc renameat2", publisher)
+        self.assertIn("no Mermaid examples found for family", examples)
+        self.assertIn("no PlantUML examples found for family", examples)
+
+    def test_gallery_publisher_reports_missing_renameat2(self) -> None:
+        spec = importlib.util.spec_from_file_location(
+            "publish_gallery",
+            REPO_ROOT / "tools/publish-gallery.py",
+        )
+        self.assertIsNotNone(spec)
+        self.assertIsNotNone(spec.loader)
+        publisher = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(publisher)
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            result = root / "result"
+            repository = root / "repository"
+            result.mkdir()
+            (result / "manifest.csv").write_text("manifest\n", encoding="utf-8")
+            (repository / "docs/gallery/benizar/test-profile").mkdir(parents=True)
+
+            with mock.patch.object(publisher.ctypes, "CDLL", return_value=object()), self.assertRaisesRegex(
+                OSError, "requires libc renameat2"
+            ):
+                publisher.publish_gallery(result, repository, "benizar", "test-profile")
 
     def test_gallery_publisher_validates_hidden_entries_and_preserves_current_gallery(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

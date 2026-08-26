@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import csv
 import ctypes
+import errno
 import os
 import pathlib
 import re
@@ -134,8 +135,11 @@ def publish_gallery(result: pathlib.Path, repository: pathlib.Path, family: str,
             target_exists = False
         if target_exists:
             libc = ctypes.CDLL(None, use_errno=True)
-            libc.renameat2.argtypes = [ctypes.c_int, ctypes.c_char_p, ctypes.c_int, ctypes.c_char_p, ctypes.c_uint]
-            result_code = libc.renameat2(
+            renameat2 = getattr(libc, "renameat2", None)
+            if renameat2 is None:
+                raise OSError(errno.ENOSYS, "atomic gallery replacement requires libc renameat2")
+            renameat2.argtypes = [ctypes.c_int, ctypes.c_char_p, ctypes.c_int, ctypes.c_char_p, ctypes.c_uint]
+            result_code = renameat2(
                 family_fd,
                 os.fsencode(replacement_name),
                 family_fd,
@@ -167,10 +171,14 @@ def main() -> int:
     repository = pathlib.Path(sys.argv[2])
     family = sys.argv[3]
     compatibility = sys.argv[4]
-    validate_name(family, "family")
-    validate_name(compatibility, "compatibility id")
-    validate_gallery(result, family, compatibility)
-    publish_gallery(result, repository, family, compatibility)
+    try:
+        validate_name(family, "family")
+        validate_name(compatibility, "compatibility id")
+        validate_gallery(result, family, compatibility)
+        publish_gallery(result, repository, family, compatibility)
+    except (OSError, ValueError, ET.ParseError) as exc:
+        print(f"gallery publication failed: {exc}", file=sys.stderr)
+        return 1
     return 0
 
 
