@@ -1,6 +1,6 @@
 # diavisuals
 
-![release](https://img.shields.io/badge/release-v0.3.0-blue) ![Mermaid CLI](https://img.shields.io/badge/Mermaid_CLI-11.16.0-ff3670) ![PlantUML](https://img.shields.io/badge/PlantUML-1.2026.1-2a5db0) ![family](https://img.shields.io/badge/family-benizar-2a5db0)
+![release](https://img.shields.io/badge/release-v0.3.1_pending-yellow) ![Mermaid CLI](https://img.shields.io/badge/Mermaid_CLI-11.16.0-ff3670) ![PlantUML](https://img.shields.io/badge/PlantUML-1.2026.1-2a5db0) ![family](https://img.shields.io/badge/family-benizar-2a5db0)
 
 `diavisuals` centralizes shared Mermaid and PlantUML visual styles and the
 Docker renderer used by dosquartsdedocs projects. The goal is to stop copying
@@ -49,11 +49,11 @@ Build the shared renderer image once:
 make mcp-build
 ```
 
-Force-remove any active renderer containers owned by this factory without
-removing images, volumes, or unrelated containers:
+Force-remove active renderer containers for one selected consumer workspace
+without removing images, volumes, other workspaces, or unrelated containers:
 
 ```bash
-make mcp-down
+make mcp-down PROJECT=/path/to/project
 ```
 
 Render a diagram source file from a consumer project:
@@ -103,6 +103,7 @@ diavisuals style-inventory
 diavisuals style-audit
 diavisuals compatibility-status
 diavisuals check
+diavisuals --project /path/to/unaltraweb-site project-check
 diavisuals release-status
 diavisuals render-diagram source.mmd output.svg
 diavisuals render-diagram-text --text 'flowchart TD; A-->B'
@@ -115,14 +116,24 @@ The stdio MCP server is:
 diavisuals --project /path/to/consumer-repo mcp serve
 ```
 
-The root `mcp-factory.yml` file is a static discovery contract for external
-launchers such as ContExt. A launcher can scan sibling Git repositories under
-`~/git`, read that file, and call stable JSON commands such as `check`,
-`update`, `install-codex-mcp`, and `mcp client-config`.
+The root `mcp-factory.yml` file is the checkout discovery contract for external
+launchers such as ContExt. Its build, check, test, and smoke commands are
+factory-scoped; init, stdio serve, and down receive the selected workspace. The
+manifest transport is sufficient to derive client configuration, so launchers
+do not need to execute a separate client-config command. Installed wheels carry
+a distinct package manifest that uses the portable `diavisuals` entrypoint and
+does not depend on Make, a checkout path, or `scripts/factory-launcher`.
+
+For unaltraweb consumers, `project-check` inspects Mermaid and PlantUML sources
+under `assets/`, `_chapters/`, and `_documentation/` without rendering or
+modifying project content. It requires a fresh `source.svg`, preferring
+`source.edited.svg` when present, and atomically publishes the provider receipt
+at `.unaltraweb/receipts/diavisuals.json`. A failed check invalidates an older
+receipt.
 
 ## Rendered Gallery
 
-The default gallery is generated for the current release target `v0.3.0`. That short release tag points to the compatibility profile `mermaid-11.16.0-plantuml-1.2026.1`: Mermaid CLI 11.16.0 and PlantUML 1.2026.1. The full manifest is [`docs/gallery/benizar/mermaid-11.16.0-plantuml-1.2026.1/manifest.csv`](docs/gallery/benizar/mermaid-11.16.0-plantuml-1.2026.1/manifest.csv).
+The default gallery is generated for the pending release target `v0.3.1`. It retains the `v0.3.0` renderer image and compatibility profile `mermaid-11.16.0-plantuml-1.2026.1`: Mermaid CLI 11.16.0 and PlantUML 1.2026.1. The full manifest is [`docs/gallery/benizar/mermaid-11.16.0-plantuml-1.2026.1/manifest.csv`](docs/gallery/benizar/mermaid-11.16.0-plantuml-1.2026.1/manifest.csv).
 
 README previews are generated as PNG thumbnails from the same examples as the full SVG gallery. Mermaid SVG output uses native text where supported and preserves inter-word `tspan` whitespace for print and conversion tools.
 

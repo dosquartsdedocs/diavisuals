@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "diavisuals"
-version = "0.3.0"
+version = "0.3.1"
 description = "Workspace-confined Mermaid and PlantUML rendering through hardened Docker."
 readme = "README.md"
 requires-python = ">=3.10"

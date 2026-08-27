@@ -15,10 +15,12 @@ publish only validated artifacts through an atomic host-side replacement. Run
 
 This repository is a reusable, user-scoped MCP factory for diagram style assets and rendering. Keep the MCP manifest aligned with the standard ContExt lifecycle:
 
-- `make mcp-build`: prepare package/runtime dependencies without starting a persistent service.
-- `make mcp-check`: run a fast deterministic repository check.
-- `make mcp-smoke`: prove the MCP can answer a minimal style/tooling request.
-- `make mcp-down`: force-remove only renderer containers labeled for the current consumer workspace; preserve images, volumes, other workspaces, and unrelated containers.
+- `make mcp-build`: prepare package/runtime dependencies in the factory checkout without starting a persistent service.
+- `make mcp-check`: run a fast deterministic factory check without depending on a consumer workspace.
+- `make mcp-smoke`: prove the factory MCP can answer a minimal style/tooling request.
+- `make mcp-init PROJECT=/path/to/project`: initialize only the selected consumer workspace.
+- `make project-check PROJECT=/path/to/project`: verify supported unaltraweb diagram outputs and publish only the confined provider receipt.
+- `make mcp-down PROJECT=/path/to/project`: force-remove only renderer containers labeled for the selected consumer workspace; preserve images, volumes, other workspaces, and unrelated containers.
 
 The smoke test stays in this repository because only `diavisuals` knows what a meaningful minimal style proof is. ContExt invokes `commands.smoke`, stores the latest result in its smoke status cache, and disables the generated switch only when the last known smoke state is `failed`.
 

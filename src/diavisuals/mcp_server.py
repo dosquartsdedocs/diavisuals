@@ -74,6 +74,11 @@ def run_server(project: pathlib.Path) -> None:
             }
         )
 
+    @mcp.resource("diavisuals://project/check")
+    def project_check_resource() -> str:
+        """Project-wide diagram output and unaltraweb receipt check."""
+        return core.json_dumps(core.project_check(consumer_root))
+
     @mcp.resource("diavisuals://factory-manifest")
     def manifest() -> str:
         """Factory discovery manifest for ContExt-style launchers."""
@@ -114,6 +119,11 @@ def run_server(project: pathlib.Path) -> None:
         return tool_result(
             lambda: core.submodule_plan(str(consumer_root), path=path, release=release, remote=remote)
         )
+
+    @mcp.tool()
+    def project_check() -> dict[str, Any]:
+        """Check all supported project diagram outputs and publish the provider receipt."""
+        return tool_result(lambda: core.project_check(consumer_root))
 
     @mcp.tool()
     def render_diagram(
