@@ -14,8 +14,8 @@ bootstrap() {
 case "${OPERATION}" in
   build)
     bootstrap
-    "${CLI}" --project "${PROJECT_ROOT}" install-check --command "${CLI}" >/dev/null
-    exec "${CLI}" --project "${PROJECT_ROOT}" ensure-renderer "$@"
+    "${CLI}" install-check --command "${CLI}" >/dev/null
+    exec "${CLI}" ensure-renderer "$@"
     ;;
   init)
     bootstrap
@@ -23,7 +23,7 @@ case "${OPERATION}" in
     ;;
   check)
     bootstrap
-    exec "${CLI}" --project "${PROJECT_ROOT}" lifecycle-check --command "${CLI}" "$@"
+    exec "${CLI}" lifecycle-check --command "${CLI}" "$@"
     ;;
   tests)
     bootstrap
@@ -31,7 +31,7 @@ case "${OPERATION}" in
     ;;
   smoke)
     bootstrap
-    exec make --no-print-directory -C "${FACTORY_ROOT}" mcp-smoke PROJECT="${PROJECT_ROOT}"
+    exec make --no-print-directory -C "${FACTORY_ROOT}" mcp-smoke
     ;;
   down)
     bootstrap
@@ -76,6 +76,10 @@ case "${OPERATION}" in
   audit)
     bootstrap
     exec "${CLI}" --project "${PROJECT_ROOT}" style-audit "$@"
+    ;;
+  project-check)
+    bootstrap
+    exec "${CLI}" --project "${PROJECT_ROOT}" project-check "$@"
     ;;
   render)
     bootstrap

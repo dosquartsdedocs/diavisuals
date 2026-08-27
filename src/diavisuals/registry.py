@@ -30,6 +30,7 @@ RENDERER_WORKSPACE_LABEL = "io.context.mcp-factory.workspace"
 HEX_COLOR_RE = re.compile(r"#[0-9A-Fa-f]{6}\b")
 STYLE_NAME_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*\Z")
 DOCKER_IMAGE_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._/@:-]*\Z")
+DOCKER_CONTAINER_ID_RE = re.compile(r"[0-9a-f]{12,64}\Z")
 MAX_RENDERED_ARTIFACT_BYTES = 64 * 1024 * 1024
 MAX_INLINE_ARTIFACT_BYTES = 8 * 1024 * 1024
 MAX_DIAGRAM_SOURCE_BYTES = 4 * 1024 * 1024
@@ -71,6 +72,14 @@ OUTPUT_MIME_TYPES = {
     "png": "image/png",
     "pdf": "application/pdf",
 }
+UNALTRAWEB_DIAGRAM_ROOTS = ("assets", "_chapters", "_documentation")
+DIAGRAM_SOURCE_SUFFIXES = frozenset({".mmd", ".mermaid", ".puml", ".plantuml", ".uml"})
+PROJECT_RECEIPT_PATH = pathlib.Path(".unaltraweb/receipts/diavisuals.json")
+PROJECT_RECEIPT_PREFIX = b"unaltraweb-companion-receipt-v1\0diavisuals\0"
+MAX_PROJECT_DIAGRAMS = 500
+MAX_PROJECT_SCAN_ENTRIES = 100_000
+MAX_PROJECT_SCAN_DEPTH = 64
+MAX_COMPANION_ARTIFACT_BYTES = 16 * 1024 * 1024
 MCP_TOOL_NAMES = (
     "style_inventory",
     "style_audit",
@@ -78,6 +87,7 @@ MCP_TOOL_NAMES = (
     "compatibility_status",
     "release_status",
     "submodule_plan",
+    "project_check",
     "render_diagram",
     "render_diagram_text",
     "update",
@@ -89,6 +99,7 @@ MCP_RESOURCE_URIS = (
     "diavisuals://compatibility",
     "diavisuals://style-audit",
     "diavisuals://examples",
+    "diavisuals://project/check",
     "diavisuals://factory-manifest",
 )
 
@@ -357,6 +368,210 @@ def _open_confined_file(root: pathlib.Path, path: pathlib.Path) -> int:
         return os.open(name, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0), dir_fd=parent_descriptor)
     finally:
         os.close(parent_descriptor)
+
+
+def _ensure_confined_directory(root: pathlib.Path, path: pathlib.Path) -> None:
+    try:
+        parent_descriptor, name = _open_confined_parent(root, path, create=True)
+    except OSError as exc:
+        raise ValueError(f"generated path contains a symlink or unsafe directory: {rel(path, root)}") from exc
+    directory_flags = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) | getattr(os, "O_NOFOLLOW", 0)
+    try:
+        try:
+            os.mkdir(name, mode=0o755, dir_fd=parent_descriptor)
+        except FileExistsError:
+            pass
+        descriptor = os.open(name, directory_flags, dir_fd=parent_descriptor)
+        os.close(descriptor)
+    except OSError as exc:
+        raise ValueError(f"generated path contains a symlink or unsafe directory: {rel(path, root)}") from exc
+    finally:
+        os.close(parent_descriptor)
+
+
+def _read_bounded_regular_file(
+    root: pathlib.Path,
+    path: pathlib.Path,
+    *,
+    max_bytes: int,
+    description: str,
+) -> tuple[bytes, os.stat_result]:
+    try:
+        descriptor = _open_confined_file(root, path)
+    except FileNotFoundError:
+        raise
+    except OSError as exc:
+        raise ValueError(f"{description} could not be opened without following symlinks: {rel(path, root)}") from exc
+    try:
+        before = os.fstat(descriptor)
+        if not stat.S_ISREG(before.st_mode):
+            raise ValueError(f"{description} is not a regular file: {rel(path, root)}")
+        if before.st_size > max_bytes:
+            raise ValueError(f"{description} exceeds the {max_bytes}-byte limit: {rel(path, root)}")
+        os.lseek(descriptor, 0, os.SEEK_SET)
+        chunks: list[bytes] = []
+        remaining = max_bytes + 1
+        while remaining:
+            chunk = os.read(descriptor, min(1024 * 1024, remaining))
+            if not chunk:
+                break
+            chunks.append(chunk)
+            remaining -= len(chunk)
+        content = b"".join(chunks)
+        after = os.fstat(descriptor)
+        if len(content) > max_bytes:
+            raise ValueError(f"{description} exceeds the {max_bytes}-byte limit: {rel(path, root)}")
+        if (
+            before.st_dev,
+            before.st_ino,
+            before.st_size,
+            before.st_mtime_ns,
+            before.st_ctime_ns,
+        ) != (
+            after.st_dev,
+            after.st_ino,
+            after.st_size,
+            after.st_mtime_ns,
+            after.st_ctime_ns,
+        ) or len(content) != after.st_size:
+            raise ValueError(f"{description} changed while it was being checked: {rel(path, root)}")
+        return content, after
+    finally:
+        os.close(descriptor)
+
+
+def _discover_project_diagrams(root: pathlib.Path) -> list[pathlib.Path]:
+    directory_flags = (
+        os.O_RDONLY
+        | getattr(os, "O_DIRECTORY", 0)
+        | getattr(os, "O_NOFOLLOW", 0)
+        | getattr(os, "O_CLOEXEC", 0)
+    )
+    root_descriptor = os.open(root, directory_flags)
+    paths: list[pathlib.Path] = []
+    entries_seen = 0
+
+    def walk(directory_descriptor: int, relative: pathlib.Path, depth: int) -> None:
+        nonlocal entries_seen
+        if depth > MAX_PROJECT_SCAN_DEPTH:
+            raise ValueError(f"diagram source scan exceeds the {MAX_PROJECT_SCAN_DEPTH}-level limit")
+        with os.scandir(directory_descriptor) as entries:
+            names = sorted(entry.name for entry in entries)
+        for name in names:
+            entries_seen += 1
+            if entries_seen > MAX_PROJECT_SCAN_ENTRIES:
+                raise ValueError(f"diagram source scan exceeds the {MAX_PROJECT_SCAN_ENTRIES}-entry limit")
+            candidate_relative = relative / name
+            try:
+                metadata = os.stat(name, dir_fd=directory_descriptor, follow_symlinks=False)
+            except OSError as exc:
+                raise ValueError(f"diagram source path changed during inspection: {candidate_relative.as_posix()}") from exc
+            if stat.S_ISLNK(metadata.st_mode):
+                if pathlib.Path(name).suffix.lower() in DIAGRAM_SOURCE_SUFFIXES:
+                    raise ValueError(f"diagram source must not be a symlink: {candidate_relative.as_posix()}")
+                continue
+            if stat.S_ISDIR(metadata.st_mode):
+                try:
+                    child_descriptor = os.open(name, directory_flags, dir_fd=directory_descriptor)
+                except OSError as exc:
+                    raise ValueError(f"diagram source directory is unsafe: {candidate_relative.as_posix()}") from exc
+                try:
+                    walk(child_descriptor, candidate_relative, depth + 1)
+                finally:
+                    os.close(child_descriptor)
+                continue
+            if pathlib.Path(name).suffix.lower() not in DIAGRAM_SOURCE_SUFFIXES:
+                continue
+            if not stat.S_ISREG(metadata.st_mode):
+                raise ValueError(f"diagram source is not a regular file: {candidate_relative.as_posix()}")
+            paths.append(root / candidate_relative)
+            if len(paths) > MAX_PROJECT_DIAGRAMS:
+                raise ValueError(f"diagram source inventory exceeds the {MAX_PROJECT_DIAGRAMS}-file limit")
+
+    try:
+        for root_name in UNALTRAWEB_DIAGRAM_ROOTS:
+            try:
+                directory_descriptor = os.open(root_name, directory_flags, dir_fd=root_descriptor)
+            except FileNotFoundError:
+                continue
+            except OSError as exc:
+                raise ValueError(f"diagram source root is not a safe directory: {root_name}") from exc
+            try:
+                walk(directory_descriptor, pathlib.Path(root_name), 1)
+            finally:
+                os.close(directory_descriptor)
+    finally:
+        os.close(root_descriptor)
+    return sorted(paths, key=lambda path: rel(path, root))
+
+
+def _atomic_write_confined(root: pathlib.Path, path: pathlib.Path, content: bytes) -> None:
+    parent_descriptor = -1
+    descriptor = -1
+    temporary_name = ""
+    temporary_created = False
+    try:
+        parent_descriptor, name = _open_confined_parent(root, path, create=True)
+        try:
+            existing = os.stat(name, dir_fd=parent_descriptor, follow_symlinks=False)
+        except FileNotFoundError:
+            existing = None
+        if existing is not None and not stat.S_ISREG(existing.st_mode):
+            raise ValueError(f"receipt path is not a regular file: {rel(path, root)}")
+        temporary_name = f".{name}.{uuid.uuid4().hex}.tmp"
+        descriptor = os.open(
+            temporary_name,
+            os.O_WRONLY
+            | os.O_CREAT
+            | os.O_EXCL
+            | getattr(os, "O_NOFOLLOW", 0)
+            | getattr(os, "O_CLOEXEC", 0),
+            0o600,
+            dir_fd=parent_descriptor,
+        )
+        temporary_created = True
+        with os.fdopen(descriptor, "wb") as handle:
+            descriptor = -1
+            handle.write(content)
+            handle.flush()
+            os.fsync(handle.fileno())
+            os.fchmod(handle.fileno(), 0o644)
+        os.replace(temporary_name, name, src_dir_fd=parent_descriptor, dst_dir_fd=parent_descriptor)
+        temporary_created = False
+        os.fsync(parent_descriptor)
+    finally:
+        if descriptor >= 0:
+            os.close(descriptor)
+        if temporary_created and parent_descriptor >= 0:
+            try:
+                os.unlink(temporary_name, dir_fd=parent_descriptor)
+            except FileNotFoundError:
+                pass
+        if parent_descriptor >= 0:
+            os.close(parent_descriptor)
+
+
+def _invalidate_project_receipt(root: pathlib.Path) -> dict[str, Any]:
+    receipt = root / PROJECT_RECEIPT_PATH
+    parent_descriptor = -1
+    try:
+        parent_descriptor, name = _open_confined_parent(root, receipt)
+        try:
+            metadata = os.stat(name, dir_fd=parent_descriptor, follow_symlinks=False)
+        except FileNotFoundError:
+            return {"path": PROJECT_RECEIPT_PATH.as_posix(), "removed": False}
+        if stat.S_ISDIR(metadata.st_mode):
+            raise ValueError("receipt path is a directory")
+        os.unlink(name, dir_fd=parent_descriptor)
+        os.fsync(parent_descriptor)
+        return {"path": PROJECT_RECEIPT_PATH.as_posix(), "removed": True}
+    except FileNotFoundError:
+        return {"path": PROJECT_RECEIPT_PATH.as_posix(), "removed": False}
+    except (OSError, ValueError) as exc:
+        return {"path": PROJECT_RECEIPT_PATH.as_posix(), "removed": False, "error": str(exc)}
+    finally:
+        if parent_descriptor >= 0:
+            os.close(parent_descriptor)
 
 
 def diagram_engine(input_path: pathlib.Path, requested: str = "auto") -> str:
@@ -1452,18 +1667,211 @@ def update_factory(dry_run: bool = False) -> dict[str, Any]:
     }
 
 
+def project_check(project_root: str | pathlib.Path = ".") -> dict[str, Any]:
+    root = pathlib.Path(project_root).expanduser().resolve()
+    if not root.is_dir():
+        raise FileNotFoundError(f"project root not found: {project_root}")
+    receipt_path = root / PROJECT_RECEIPT_PATH
+    base: dict[str, Any] = {
+        "ok": False,
+        "project": str(root),
+        "sources_and_artifacts_read_only": True,
+        "roots": list(UNALTRAWEB_DIAGRAM_ROOTS),
+        "source_suffixes": sorted(DIAGRAM_SOURCE_SUFFIXES),
+        "sources": [],
+        "issues": [],
+        "request_sha256": "",
+        "inputs": [],
+        "receipt": {"path": PROJECT_RECEIPT_PATH.as_posix(), "published": False},
+    }
+    try:
+        sources = _discover_project_diagrams(root)
+    except (OSError, UnicodeError, ValueError) as exc:
+        invalidated = _invalidate_project_receipt(root)
+        return {
+            **base,
+            "issues": [str(exc)],
+            "receipt": {**base["receipt"], "invalidation": invalidated},
+        }
+
+    digest = hashlib.sha256()
+    digest.update(PROJECT_RECEIPT_PREFIX)
+    records: list[dict[str, Any]] = []
+    snapshots: list[dict[str, Any]] = []
+    issues: list[str] = []
+    for source in sources:
+        source_name = rel(source, root)
+        record: dict[str, Any] = {"source": source_name}
+        try:
+            source_data, source_metadata = _read_bounded_regular_file(
+                root,
+                source,
+                max_bytes=MAX_DIAGRAM_SOURCE_BYTES,
+                description="diagram source",
+            )
+            source_name_bytes = source_name.encode("utf-8")
+            digest.update(len(source_name_bytes).to_bytes(8, "big"))
+            digest.update(source_name_bytes)
+            digest.update(len(source_data).to_bytes(8, "big"))
+            digest.update(source_data)
+            source_sha256 = hashlib.sha256(source_data).hexdigest()
+            record["source_sha256"] = source_sha256
+
+            edited = pathlib.Path(str(source) + ".edited.svg")
+            generated = pathlib.Path(str(source) + ".svg")
+            try:
+                output_data, output_metadata = _read_bounded_regular_file(
+                    root,
+                    edited,
+                    max_bytes=MAX_COMPANION_ARTIFACT_BYTES,
+                    description="preferred diagram output",
+                )
+                output = edited
+            except FileNotFoundError:
+                output = generated
+                try:
+                    output_data, output_metadata = _read_bounded_regular_file(
+                        root,
+                        generated,
+                        max_bytes=MAX_COMPANION_ARTIFACT_BYTES,
+                        description="diagram output",
+                    )
+                except FileNotFoundError:
+                    record.update({
+                        "output": rel(generated, root),
+                        "edited_override": False,
+                        "state": "missing",
+                    })
+                    records.append(record)
+                    issues.append(f"{source_name}: missing output {rel(generated, root)}")
+                    continue
+            output_name = rel(output, root)
+            record.update({
+                "output": output_name,
+                "edited_override": output == edited,
+            })
+            if not output_data or b"<svg" not in output_data[:4096].lower():
+                record["state"] = "invalid"
+                records.append(record)
+                issues.append(f"{source_name}: output is not an SVG: {output_name}")
+                continue
+            output_sha256 = hashlib.sha256(output_data).hexdigest()
+            record["artifact_sha256"] = output_sha256
+            if source_metadata.st_mtime_ns > output_metadata.st_mtime_ns:
+                record["state"] = "stale"
+                records.append(record)
+                issues.append(f"{source_name}: stale output {output_name}")
+                continue
+            record["state"] = "fresh"
+            records.append(record)
+            snapshots.append({
+                "source": source,
+                "source_sha256": source_sha256,
+                "output": output,
+                "artifact_sha256": output_sha256,
+            })
+        except (OSError, UnicodeError, ValueError) as exc:
+            record["state"] = "invalid"
+            record["error"] = str(exc)
+            records.append(record)
+            issues.append(f"{source_name}: {exc}")
+
+    base["sources"] = records
+    base["issues"] = issues
+    base["request_sha256"] = digest.hexdigest()
+    if issues:
+        invalidated = _invalidate_project_receipt(root)
+        if invalidated.get("error"):
+            base["issues"] = [*issues, f"receipt invalidation failed: {invalidated['error']}"]
+        base["receipt"] = {**base["receipt"], "invalidation": invalidated}
+        return base
+
+    try:
+        current_sources = _discover_project_diagrams(root)
+        if current_sources != sources:
+            raise ValueError("diagram source inventory changed while it was being checked")
+        for snapshot in snapshots:
+            source_data, source_metadata = _read_bounded_regular_file(
+                root,
+                snapshot["source"],
+                max_bytes=MAX_DIAGRAM_SOURCE_BYTES,
+                description="diagram source",
+            )
+            if hashlib.sha256(source_data).hexdigest() != snapshot["source_sha256"]:
+                raise ValueError(f"diagram source changed while it was being checked: {rel(snapshot['source'], root)}")
+            edited = pathlib.Path(str(snapshot["source"]) + ".edited.svg")
+            generated = pathlib.Path(str(snapshot["source"]) + ".svg")
+            try:
+                output_data, output_metadata = _read_bounded_regular_file(
+                    root,
+                    edited,
+                    max_bytes=MAX_COMPANION_ARTIFACT_BYTES,
+                    description="preferred diagram output",
+                )
+                current_output = edited
+            except FileNotFoundError:
+                output_data, output_metadata = _read_bounded_regular_file(
+                    root,
+                    generated,
+                    max_bytes=MAX_COMPANION_ARTIFACT_BYTES,
+                    description="diagram output",
+                )
+                current_output = generated
+            if current_output != snapshot["output"] or hashlib.sha256(output_data).hexdigest() != snapshot["artifact_sha256"]:
+                raise ValueError(f"diagram output changed while it was being checked: {rel(current_output, root)}")
+            if source_metadata.st_mtime_ns > output_metadata.st_mtime_ns:
+                raise ValueError(f"diagram output became stale while it was being checked: {rel(current_output, root)}")
+
+        artifacts = [
+            {"path": rel(snapshot["output"], root), "sha256": snapshot["artifact_sha256"]}
+            for snapshot in snapshots
+        ]
+        artifacts.sort(key=lambda item: item["path"])
+        receipt = {
+            "schema_version": 1,
+            "provider": "diavisuals",
+            "provider_version": __version__,
+            "release": DEFAULT_RELEASE,
+            "request_sha256": base["request_sha256"],
+            "ok": True,
+            "inputs": [],
+            "artifacts": artifacts,
+        }
+        receipt_data = (json.dumps(receipt, sort_keys=True, separators=(",", ":"), ensure_ascii=False) + "\n").encode("utf-8")
+        _atomic_write_confined(root, receipt_path, receipt_data)
+    except (OSError, UnicodeError, ValueError) as exc:
+        invalidated = _invalidate_project_receipt(root)
+        publication_issues = [f"receipt publication failed: {exc}"]
+        if invalidated.get("error"):
+            publication_issues.append(f"receipt invalidation failed: {invalidated['error']}")
+        base["issues"] = publication_issues
+        base["receipt"] = {**base["receipt"], "invalidation": invalidated}
+        return base
+
+    base["ok"] = True
+    base["receipt"] = {
+        "path": PROJECT_RECEIPT_PATH.as_posix(),
+        "published": True,
+        "schema_version": 1,
+    }
+    base["artifacts"] = artifacts
+    return base
+
+
 def initialize_project(project_root: str | pathlib.Path = ".") -> dict[str, Any]:
     root = pathlib.Path(project_root).expanduser().resolve()
     if not root.is_dir():
         raise FileNotFoundError(f"project root not found: {project_root}")
-    cache = resolve_project_path(root, ".cache/diavisuals")
-    cache.mkdir(parents=True, exist_ok=True)
+    cache = pathlib.Path(os.path.abspath(root / ".cache/diavisuals"))
     reject_symlink_components(cache, root)
+    _ensure_confined_directory(root, cache)
     return {"ok": True, "project": str(root), "created": [rel(cache, root)]}
 
 
 def down_factory(project_root: str | pathlib.Path = ".") -> dict[str, Any]:
     root = pathlib.Path(project_root).expanduser().resolve()
+    if not root.is_dir():
+        raise FileNotFoundError(f"project root not found: {project_root}")
     docker = shutil.which("docker")
     if not docker:
         return {"ok": True, "containers": [], "message": "Docker is unavailable"}
@@ -1485,6 +1893,12 @@ def down_factory(project_root: str | pathlib.Path = ".") -> dict[str, Any]:
     if listed["returncode"] != 0:
         return {"ok": False, "containers": [], "result": listed}
     containers = listed["stdout"].split()
+    if any(not DOCKER_CONTAINER_ID_RE.fullmatch(container) for container in containers):
+        return {
+            "ok": False,
+            "containers": [],
+            "message": "Docker returned an invalid container identifier; refusing cleanup.",
+        }
     if not containers:
         return {"ok": True, "containers": []}
     removed = run([docker, "container", "rm", "--force", *containers], cwd=root)
@@ -1527,57 +1941,60 @@ def vscode_client_config(project: str = "${workspaceFolder}", command: str = "")
 def factory_manifest() -> dict[str, Any]:
     checkout = source_checkout()
     if checkout is not None:
-        prefix = [
+        factory_launcher = [
+            "bash",
+            "${factoryRoot}/scripts/factory-launcher",
+            "${factoryRoot}",
+        ]
+        project_launcher = [
             "bash",
             "${factoryRoot}/scripts/factory-launcher",
             "${workspaceFolder}",
         ]
-        transport = [*prefix, "serve"]
+        transport = ["make", "-C", "${factoryRoot}", "mcp-stdio", "PROJECT=${workspaceFolder}"]
         commands = {
-            name: [*prefix, operation]
-            for name, operation in (
-                ("build", "build"),
-                ("init", "init"),
-                ("check", "check"),
-                ("tests", "tests"),
-                ("smoke", "smoke"),
-                ("down", "down"),
-                ("update", "update"),
-                ("release_status", "release-status"),
-                ("install_check", "install-check"),
-                ("factory_check", "factory-check"),
-                ("install_codex_mcp", "install-codex-mcp"),
-                ("serve", "serve"),
-                ("client_config", "client-config"),
-                ("manifest", "manifest"),
-                ("styles", "styles"),
-                ("audit", "audit"),
-                ("render", "render"),
-                ("render_text", "render-text"),
-            )
+            "build": ["make", "mcp-build"],
+            "init": ["make", "mcp-init", "PROJECT=${workspaceFolder}"],
+            "check": ["make", "mcp-check"],
+            "tests": ["make", "tests"],
+            "smoke": ["make", "mcp-smoke"],
+            "down": ["make", "mcp-down", "PROJECT=${workspaceFolder}"],
+            "update": [*factory_launcher, "update"],
+            "release_status": [*factory_launcher, "release-status"],
+            "install_check": [*factory_launcher, "install-check"],
+            "factory_check": [*factory_launcher, "factory-check"],
+            "install_codex_mcp": [*project_launcher, "install-codex-mcp"],
+            "serve": transport,
+            "manifest": [*factory_launcher, "manifest"],
+            "styles": [*factory_launcher, "styles"],
+            "audit": [*factory_launcher, "audit"],
+            "project_check": [*project_launcher, "project-check"],
+            "render": [*project_launcher, "render"],
+            "render_text": [*project_launcher, "render-text"],
         }
     else:
-        cli = ["diavisuals", "--project", "${workspaceFolder}"]
-        transport = [*cli, "mcp", "serve"]
+        factory_cli = ["diavisuals"]
+        project_cli = [*factory_cli, "--project", "${workspaceFolder}"]
+        transport = [*project_cli, "mcp", "serve"]
         commands = {
-            "build": [*cli, "ensure-renderer"],
-            "init": [*cli, "init"],
-            "check": [*cli, "lifecycle-check"],
-            "tests": [*cli, "self-test"],
-            "smoke": [*cli, "mcp-smoke"],
-            "down": [*cli, "down"],
-            "update": [*cli, "update"],
-            "release_status": [*cli, "release-status"],
-            "install_check": [*cli, "install-check"],
-            "factory_check": [*cli, "factory-check"],
-            "install_codex_mcp": [*cli, "install-codex-mcp"],
+            "build": [*factory_cli, "ensure-renderer"],
+            "init": [*project_cli, "init"],
+            "check": [*factory_cli, "lifecycle-check"],
+            "tests": [*factory_cli, "self-test"],
+            "smoke": [*factory_cli, "mcp-smoke"],
+            "down": [*project_cli, "down"],
+            "update": [*factory_cli, "update"],
+            "release_status": [*factory_cli, "release-status"],
+            "install_check": [*factory_cli, "install-check"],
+            "factory_check": [*factory_cli, "factory-check"],
+            "install_codex_mcp": [*project_cli, "install-codex-mcp"],
             "serve": transport,
-            "client_config": [*cli, "mcp", "client-config"],
-            "manifest": [*cli, "factory-manifest"],
-            "styles": [*cli, "style-inventory"],
-            "audit": [*cli, "style-audit"],
-            "render": [*cli, "render-diagram"],
-            "render_text": [*cli, "render-diagram-text"],
+            "manifest": [*factory_cli, "factory-manifest"],
+            "styles": [*factory_cli, "style-inventory"],
+            "audit": [*factory_cli, "style-audit"],
+            "project_check": [*project_cli, "project-check"],
+            "render": [*project_cli, "render-diagram"],
+            "render_text": [*project_cli, "render-diagram-text"],
         }
     return {
         "ok": True,
@@ -1589,8 +2006,15 @@ def factory_manifest() -> dict[str, Any]:
         "repository": "https://github.com/dosquartsdedocs/diavisuals",
         "workspace_rule": {
             "consumer_root": ".",
-            "source_paths": [],
-            "generated_paths": [".cache/diavisuals"],
+            "source_paths": [
+                "assets/**/*.{mmd,mermaid,puml,plantuml,uml}",
+                "_chapters/**/*.{mmd,mermaid,puml,plantuml,uml}",
+                "_documentation/**/*.{mmd,mermaid,puml,plantuml,uml}",
+            ],
+            "generated_paths": [
+                ".cache/diavisuals",
+                ".unaltraweb/receipts/diavisuals.json",
+            ],
             "init_creates": [".cache/diavisuals"],
             "allowed_external_writes": [],
         },
@@ -1618,6 +2042,8 @@ def factory_manifest() -> dict[str, Any]:
             "consumer_root_fixed_at_startup": True,
             "container_consumer_mount": "none",
             "renderer_staging": "selected-input-and-style-assets-only",
+            "project_check_roots": list(UNALTRAWEB_DIAGRAM_ROOTS),
+            "receipt": PROJECT_RECEIPT_PATH.as_posix(),
         },
         "mcp": {
             "server_name": "diavisuals",

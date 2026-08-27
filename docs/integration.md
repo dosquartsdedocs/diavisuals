@@ -146,6 +146,14 @@ The core or template of `unaltraweb` should add a target such as `make diagrams`
 that calls `diavisuals render-diagram` with the profile supported by that web
 project.
 
+After rendering, run `diavisuals --project /path/to/site project-check`. It
+checks all supported sources under `assets/`, `_chapters/`, and
+`_documentation/`, prefers an author-owned `source.edited.svg`, and publishes
+the exact version-1 receipt required by unaltraweb at
+`.unaltraweb/receipts/diavisuals.json`. The receipt contains no non-source
+inputs because local PlantUML includes are not a supported provider contract.
+Do not build after a failed check or retain its invalidated receipt.
+
 Inline ```mermaid``` blocks rendered in the browser can keep using the current dynamic website theme. `diavisuals` should apply first to versioned diagram sources such as `.mmd` and `.puml`, because those are reproducible and fit the existing plugin.
 
 ## Other Projects

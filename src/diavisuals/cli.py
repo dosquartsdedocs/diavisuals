@@ -29,6 +29,7 @@ from .registry import (
     install_check,
     json_dumps,
     lifecycle_check,
+    project_check,
     release_status,
     render_diagram,
     render_diagram_text,
@@ -152,6 +153,12 @@ def cmd_self_test(args: argparse.Namespace) -> int:
 
 def cmd_down(args: argparse.Namespace) -> int:
     payload = down_factory(args.project)
+    print_payload(payload)
+    return 0 if payload.get("ok") else 1
+
+
+def cmd_project_check(args: argparse.Namespace) -> int:
+    payload = project_check(args.project)
     print_payload(payload)
     return 0 if payload.get("ok") else 1
 
@@ -379,6 +386,12 @@ def build_parser() -> argparse.ArgumentParser:
 
     down_parser = subcommands.add_parser("down", help="Remove renderer containers owned by this consumer workspace")
     down_parser.set_defaults(func=cmd_down)
+
+    project_check_parser = subcommands.add_parser(
+        "project-check",
+        help="Check supported project diagram outputs and publish the unaltraweb receipt",
+    )
+    project_check_parser.set_defaults(func=cmd_project_check)
 
     smoke_parser = subcommands.add_parser("mcp-smoke", help="Run a real MCP stdio protocol smoke test")
     smoke_parser.set_defaults(func=cmd_mcp_smoke)

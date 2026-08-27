@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+- Split ContExt lifecycle commands into factory-scoped build/check/smoke and project-scoped init/serve/down operations.
+- Keep checkout and installed-package manifests portable while deriving client configuration from the declared transport.
+- Reject symlinked cache ancestors during initialization and malformed Docker container IDs during workspace cleanup.
+- Add a workspace-confined project diagram check with atomic unaltraweb provider receipts and stale-receipt invalidation.
+
 ## 0.3.0 - 2026-08-26
 
 - Stage only the selected diagram and style assets for Docker rendering.

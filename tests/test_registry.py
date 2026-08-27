@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import importlib.util
 import json
 import os
@@ -23,6 +24,7 @@ from diavisuals.registry import (
     factory_check,
     factory_manifest,
     json_dumps,
+    project_check,
     release_status,
     render_diagram,
     render_diagram_text,
@@ -130,17 +132,56 @@ class RegistryTest(unittest.TestCase):
         self.assertEqual(manifest["name"], "diavisuals")
         self.assertIn("style_inventory", manifest["mcp"]["required_tools"])
         self.assertIn("style_audit", manifest["mcp"]["required_tools"])
+        self.assertIn("project_check", manifest["mcp"]["required_tools"])
         self.assertIn("render_diagram", manifest["mcp"]["required_tools"])
         self.assertIn("render_diagram_text", manifest["mcp"]["required_tools"])
-        self.assertEqual(manifest["commands"]["down"][-1], "down")
+        self.assertEqual(manifest["commands"]["build"], ["make", "mcp-build"])
+        self.assertEqual(manifest["commands"]["check"], ["make", "mcp-check"])
+        self.assertEqual(manifest["commands"]["smoke"], ["make", "mcp-smoke"])
+        self.assertEqual(manifest["commands"]["init"][-1], "PROJECT=${workspaceFolder}")
+        self.assertEqual(manifest["commands"]["down"][-1], "PROJECT=${workspaceFolder}")
+        self.assertEqual(manifest["commands"]["serve"], manifest["transport"]["command"])
+        self.assertEqual(manifest["commands"]["project_check"][-1], "project-check")
+        self.assertNotIn("client_config", manifest["commands"])
         self.assertEqual(manifest["workspace_rule"]["consumer_root"], ".")
         self.assertIn(".cache/diavisuals", manifest["workspace_rule"]["generated_paths"])
         self.assertEqual(manifest["contracts"]["container_consumer_mount"], "none")
         self.assertTrue(factory_check(REPO_ROOT)["ok"], factory_check(REPO_ROOT))
 
+        package_static = registry.yaml.safe_load((REPO_ROOT / "mcp-factory-package.yml").read_text(encoding="utf-8"))
+        with mock.patch.object(registry, "source_checkout", return_value=None):
+            package_manifest = factory_manifest()
+        for key in (
+            "schema_version",
+            "name",
+            "kind",
+            "version",
+            "description",
+            "repository",
+            "workspace_rule",
+            "runtime",
+            "transport",
+            "commands",
+            "discovery",
+            "release",
+            "contracts",
+            "mcp",
+        ):
+            self.assertEqual(package_static[key], package_manifest[key], key)
+        self.assertEqual(package_manifest["commands"]["build"], ["diavisuals", "ensure-renderer"])
+        self.assertEqual(package_manifest["commands"]["check"], ["diavisuals", "lifecycle-check"])
+        self.assertEqual(package_manifest["commands"]["smoke"], ["diavisuals", "mcp-smoke"])
+        self.assertIn("${workspaceFolder}", package_manifest["commands"]["init"])
+        self.assertIn("${workspaceFolder}", package_manifest["commands"]["down"])
+        self.assertEqual(package_manifest["commands"]["project_check"][-1], "project-check")
+        self.assertNotIn("client_config", package_manifest["commands"])
+        package_serialized = json.dumps(package_static)
+        for checkout_only in ("${factoryRoot}", "scripts/factory-launcher", '"make"'):
+            self.assertNotIn(checkout_only, package_serialized)
+
         plan = submodule_plan("/tmp/project", path="docs/slides/resources/diavisuals")
         self.assertTrue(plan["ok"], plan)
-        self.assertEqual(plan["release"], "v0.3.0")
+        self.assertEqual(plan["release"], "v0.3.1")
         self.assertEqual(plan["commands"][0][1:3], ["submodule", "add"])
 
     def test_cli_json(self) -> None:
@@ -365,6 +406,268 @@ class RegistryTest(unittest.TestCase):
 
         self.assertEqual(server["command"], sys.executable)
         self.assertEqual(server["args"], ["-m", "diavisuals.cli", "--project", "/tmp/project", "mcp", "serve"])
+
+    def test_initialize_project_is_idempotent_and_does_not_follow_a_raced_cache_symlink(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as external_tmp:
+            project = Path(tmp)
+            external = Path(external_tmp)
+
+            first = registry.initialize_project(project)
+            second = registry.initialize_project(project)
+            self.assertTrue(first["ok"], first)
+            self.assertTrue(second["ok"], second)
+            self.assertTrue((project / ".cache/diavisuals").is_dir())
+
+            registry.shutil.rmtree(project / ".cache")
+            real_reject = registry.reject_symlink_components
+
+            def race_cache_ancestor(path: Path, root: Path) -> None:
+                real_reject(path, root)
+                (project / ".cache").symlink_to(external, target_is_directory=True)
+
+            with mock.patch.object(registry, "reject_symlink_components", side_effect=race_cache_ancestor):
+                with self.assertRaisesRegex(ValueError, "symlink or unsafe directory"):
+                    registry.initialize_project(project)
+
+            self.assertFalse((external / "diavisuals").exists())
+
+    def test_project_check_publishes_exact_unaltraweb_receipt_for_sorted_sources(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            project = Path(tmp)
+            sources = {
+                "assets/diagrams/z.mmd": b"flowchart LR\n  A --> B\n",
+                "_documentation/diagrams/a.puml": b"@startuml\nAlice -> Bob\n@enduml\n",
+            }
+            artifacts = {}
+            for index, (name, content) in enumerate(sources.items(), start=1):
+                source = project / name
+                output = Path(str(source) + ".svg")
+                source.parent.mkdir(parents=True, exist_ok=True)
+                source.write_bytes(content)
+                output_data = f"<svg xmlns='http://www.w3.org/2000/svg' data-index='{index}'/>\n".encode()
+                output.write_bytes(output_data)
+                os.utime(source, ns=(1_000_000_000, 1_000_000_000))
+                os.utime(output, ns=(2_000_000_000, 2_000_000_000))
+                artifacts[f"{name}.svg"] = hashlib.sha256(output_data).hexdigest()
+            ignored = project / "_pages/ignored.mmd"
+            ignored.parent.mkdir()
+            ignored.write_text("flowchart LR\n  X --> Y\n", encoding="utf-8")
+
+            result = project_check(project)
+
+            self.assertTrue(result["ok"], result)
+            self.assertTrue(result["sources_and_artifacts_read_only"])
+            self.assertEqual([item["source"] for item in result["sources"]], sorted(sources))
+            receipt = json.loads((project / registry.PROJECT_RECEIPT_PATH).read_text(encoding="utf-8"))
+            self.assertEqual(
+                set(receipt),
+                {"schema_version", "provider", "provider_version", "release", "request_sha256", "ok", "inputs", "artifacts"},
+            )
+            self.assertEqual(receipt["provider"], "diavisuals")
+            self.assertEqual(receipt["provider_version"], registry.__version__)
+            self.assertEqual(receipt["release"], registry.DEFAULT_RELEASE)
+            self.assertIs(receipt["ok"], True)
+            self.assertEqual(receipt["inputs"], [])
+            self.assertEqual(
+                receipt["artifacts"],
+                [{"path": path, "sha256": artifacts[path]} for path in sorted(artifacts)],
+            )
+            digest = hashlib.sha256(registry.PROJECT_RECEIPT_PREFIX)
+            for name in sorted(sources):
+                name_bytes = name.encode("utf-8")
+                digest.update(len(name_bytes).to_bytes(8, "big"))
+                digest.update(name_bytes)
+                digest.update(len(sources[name]).to_bytes(8, "big"))
+                digest.update(sources[name])
+            self.assertEqual(receipt["request_sha256"], digest.hexdigest())
+
+    def test_project_check_removes_receipt_for_missing_or_modified_outputs(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            project = Path(tmp)
+            source = project / "assets/diagrams/flow.mmd"
+            output = Path(str(source) + ".svg")
+            source.parent.mkdir(parents=True)
+            source.write_text("flowchart LR\n  A --> B\n", encoding="utf-8")
+
+            receipt = project / registry.PROJECT_RECEIPT_PATH
+            receipt.parent.mkdir(parents=True)
+            receipt.write_text('{"stale":true}\n', encoding="utf-8")
+            missing = project_check(project)
+            self.assertFalse(missing["ok"])
+            self.assertEqual(missing["sources"][0]["state"], "missing")
+            self.assertFalse(receipt.exists())
+
+            output.write_text("<svg xmlns='http://www.w3.org/2000/svg'/>\n", encoding="utf-8")
+            os.utime(source, ns=(1_000_000_000, 1_000_000_000))
+            os.utime(output, ns=(2_000_000_000, 2_000_000_000))
+            fresh = project_check(project)
+            self.assertTrue(fresh["ok"], fresh)
+            self.assertTrue(receipt.is_file())
+
+            source.write_text("flowchart LR\n  A --> C\n", encoding="utf-8")
+            os.utime(source, ns=(3_000_000_000, 3_000_000_000))
+            modified = project_check(project)
+            self.assertFalse(modified["ok"])
+            self.assertEqual(modified["sources"][0]["state"], "stale")
+            self.assertFalse(receipt.exists())
+
+    def test_project_check_prefers_edited_svg(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            project = Path(tmp)
+            source = project / "_chapters/flow.mermaid"
+            generated = Path(str(source) + ".svg")
+            edited = Path(str(source) + ".edited.svg")
+            source.parent.mkdir(parents=True)
+            source.write_text("flowchart LR\n  A --> B\n", encoding="utf-8")
+            generated.write_text("<svg data-version='generated'/>\n", encoding="utf-8")
+            edited_data = b"<svg data-version='edited'/>\n"
+            edited.write_bytes(edited_data)
+            os.utime(source, ns=(1_000_000_000, 1_000_000_000))
+            os.utime(generated, ns=(2_000_000_000, 2_000_000_000))
+            os.utime(edited, ns=(3_000_000_000, 3_000_000_000))
+
+            result = project_check(project)
+
+            self.assertTrue(result["ok"], result)
+            self.assertTrue(result["sources"][0]["edited_override"])
+            receipt = json.loads((project / registry.PROJECT_RECEIPT_PATH).read_text(encoding="utf-8"))
+            self.assertEqual(
+                receipt["artifacts"],
+                [{"path": "_chapters/flow.mermaid.edited.svg", "sha256": hashlib.sha256(edited_data).hexdigest()}],
+            )
+
+    def test_project_check_rejects_symlinked_output_without_touching_target(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as external_tmp:
+            project = Path(tmp)
+            external = Path(external_tmp) / "outside.svg"
+            source = project / "assets/diagrams/flow.puml"
+            output = Path(str(source) + ".svg")
+            source.parent.mkdir(parents=True)
+            source.write_text("@startuml\nAlice -> Bob\n@enduml\n", encoding="utf-8")
+            external.write_text("<svg data-outside='preserve'/>\n", encoding="utf-8")
+            output.symlink_to(external)
+
+            result = project_check(project)
+
+            self.assertFalse(result["ok"])
+            self.assertEqual(result["sources"][0]["state"], "invalid")
+            self.assertIn("without following symlinks", result["sources"][0]["error"])
+            self.assertEqual(external.read_text(encoding="utf-8"), "<svg data-outside='preserve'/>\n")
+            self.assertFalse((project / registry.PROJECT_RECEIPT_PATH).exists())
+
+    def test_project_check_never_follows_receipt_symlinks(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as external_tmp:
+            project = Path(tmp)
+            external = Path(external_tmp)
+            source = project / "assets/diagrams/flow.uml"
+            output = Path(str(source) + ".svg")
+            source.parent.mkdir(parents=True)
+            source.write_text("@startuml\nAlice -> Bob\n@enduml\n", encoding="utf-8")
+            output.write_text("<svg/>\n", encoding="utf-8")
+            os.utime(source, ns=(1_000_000_000, 1_000_000_000))
+            os.utime(output, ns=(2_000_000_000, 2_000_000_000))
+            external_receipt = external / "receipts/diavisuals.json"
+            external_receipt.parent.mkdir()
+            external_receipt.write_text("outside\n", encoding="utf-8")
+            (project / ".unaltraweb").symlink_to(external, target_is_directory=True)
+
+            attacked = project_check(project)
+
+            self.assertFalse(attacked["ok"])
+            self.assertIn("receipt publication failed", attacked["issues"][0])
+            self.assertEqual(external_receipt.read_text(encoding="utf-8"), "outside\n")
+            self.assertEqual(list(external_receipt.parent.iterdir()), [external_receipt])
+
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as external_tmp:
+            project = Path(tmp)
+            source = project / "assets/diagrams/missing.mmd"
+            source.parent.mkdir(parents=True)
+            source.write_text("flowchart LR\n  A --> B\n", encoding="utf-8")
+            external_receipt = Path(external_tmp) / "outside.json"
+            external_receipt.write_text("outside\n", encoding="utf-8")
+            receipt = project / registry.PROJECT_RECEIPT_PATH
+            receipt.parent.mkdir(parents=True)
+            receipt.symlink_to(external_receipt)
+
+            invalid = project_check(project)
+
+            self.assertFalse(invalid["ok"])
+            self.assertFalse(receipt.exists())
+            self.assertEqual(external_receipt.read_text(encoding="utf-8"), "outside\n")
+
+    def test_project_check_invalidates_old_receipt_when_atomic_publication_fails(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            project = Path(tmp)
+            source = project / "assets/diagrams/flow.mmd"
+            output = Path(str(source) + ".svg")
+            source.parent.mkdir(parents=True)
+            source.write_text("flowchart LR\n  A --> B\n", encoding="utf-8")
+            output.write_text("<svg/>\n", encoding="utf-8")
+            os.utime(source, ns=(1_000_000_000, 1_000_000_000))
+            os.utime(output, ns=(2_000_000_000, 2_000_000_000))
+            receipt = project / registry.PROJECT_RECEIPT_PATH
+            receipt.parent.mkdir(parents=True)
+            receipt.write_text('{"stale":true}\n', encoding="utf-8")
+
+            with mock.patch.object(registry.os, "replace", side_effect=OSError("simulated publication failure")):
+                result = project_check(project)
+
+            self.assertFalse(result["ok"])
+            self.assertIn("simulated publication failure", result["issues"][0])
+            self.assertFalse(receipt.exists())
+            self.assertEqual(list(receipt.parent.iterdir()), [])
+
+    def test_down_removes_only_valid_container_ids_for_the_selected_workspace(self) -> None:
+        listed = {
+            "command": ["docker"],
+            "returncode": 0,
+            "stdout": f"{'a' * 12}\n{'b' * 64}\n",
+            "stderr": "",
+        }
+        removed = {"command": ["docker"], "returncode": 0, "stdout": "", "stderr": ""}
+        with tempfile.TemporaryDirectory() as tmp, mock.patch.object(
+            registry.shutil, "which", return_value="/usr/bin/docker"
+        ), mock.patch.object(registry, "run", side_effect=[listed, removed]) as runner:
+            root = Path(tmp).resolve()
+            result = registry.down_factory(root)
+
+        self.assertTrue(result["ok"], result)
+        self.assertEqual(result["containers"], ["a" * 12, "b" * 64])
+        workspace_id = registry.renderer_workspace_id(root)
+        self.assertEqual(
+            runner.call_args_list[0].args[0],
+            [
+                "/usr/bin/docker",
+                "container",
+                "ls",
+                "--all",
+                "--quiet",
+                "--filter",
+                "label=io.context.mcp-factory=diavisuals",
+                "--filter",
+                f"label=io.context.mcp-factory.workspace={workspace_id}",
+            ],
+        )
+        self.assertEqual(
+            runner.call_args_list[1].args[0],
+            ["/usr/bin/docker", "container", "rm", "--force", "a" * 12, "b" * 64],
+        )
+
+    def test_down_rejects_invalid_container_ids_without_cleanup(self) -> None:
+        listed = {
+            "command": ["docker"],
+            "returncode": 0,
+            "stdout": "not-a-container\n",
+            "stderr": "",
+        }
+        with tempfile.TemporaryDirectory() as tmp, mock.patch.object(
+            registry.shutil, "which", return_value="/usr/bin/docker"
+        ), mock.patch.object(registry, "run", return_value=listed) as runner:
+            result = registry.down_factory(tmp)
+
+        self.assertFalse(result["ok"])
+        self.assertIn("invalid container identifier", result["message"])
+        self.assertEqual(runner.call_count, 1)
 
     def test_render_diagram_text_dry_run_does_not_write_inline_source(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -846,6 +1149,7 @@ class RegistryTest(unittest.TestCase):
                     resource_uris = {str(resource.uri) for resource in resources.resources}
                     self.assertIn("diavisuals://styles", resource_uris)
                     self.assertIn("diavisuals://style-audit", resource_uris)
+                    self.assertIn("diavisuals://project/check", resource_uris)
                     self.assertIn("diavisuals://factory-manifest", resource_uris)
 
                     tools = await session.list_tools()
@@ -853,6 +1157,7 @@ class RegistryTest(unittest.TestCase):
                     self.assertIn("style_inventory", tool_names)
                     self.assertIn("style_audit", tool_names)
                     self.assertIn("submodule_plan", tool_names)
+                    self.assertIn("project_check", tool_names)
                     self.assertIn("render_diagram_text", tool_names)
 
                     result = await session.call_tool("style_inventory", {})
