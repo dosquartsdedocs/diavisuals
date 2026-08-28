@@ -1,6 +1,6 @@
 # diavisuals
 
-![release](https://img.shields.io/badge/release-v0.3.1_pending-yellow) ![Mermaid CLI](https://img.shields.io/badge/Mermaid_CLI-11.16.0-ff3670) ![PlantUML](https://img.shields.io/badge/PlantUML-1.2026.1-2a5db0) ![family](https://img.shields.io/badge/family-benizar-2a5db0)
+![release](https://img.shields.io/badge/release-v0.3.1-2a5db0) ![Mermaid CLI](https://img.shields.io/badge/Mermaid_CLI-11.16.0-ff3670) ![PlantUML](https://img.shields.io/badge/PlantUML-1.2026.1-2a5db0) ![family](https://img.shields.io/badge/family-benizar-2a5db0)
 
 `diavisuals` centralizes shared Mermaid and PlantUML visual styles and the
 Docker renderer used by dosquartsdedocs projects. The goal is to stop copying
@@ -133,7 +133,7 @@ receipt.
 
 ## Rendered Gallery
 
-The default gallery is generated for the pending release target `v0.3.1`. It retains the `v0.3.0` renderer image and compatibility profile `mermaid-11.16.0-plantuml-1.2026.1`: Mermaid CLI 11.16.0 and PlantUML 1.2026.1. The full manifest is [`docs/gallery/benizar/mermaid-11.16.0-plantuml-1.2026.1/manifest.csv`](docs/gallery/benizar/mermaid-11.16.0-plantuml-1.2026.1/manifest.csv).
+The default gallery is generated for release `v0.3.1`. It retains the `v0.3.0` renderer image and compatibility profile `mermaid-11.16.0-plantuml-1.2026.1`: Mermaid CLI 11.16.0 and PlantUML 1.2026.1. The full manifest is [`docs/gallery/benizar/mermaid-11.16.0-plantuml-1.2026.1/manifest.csv`](docs/gallery/benizar/mermaid-11.16.0-plantuml-1.2026.1/manifest.csv).
 
 README previews are generated as PNG thumbnails from the same examples as the full SVG gallery. Mermaid SVG output uses native text where supported and preserves inter-word `tspan` whitespace for print and conversion tools.
 

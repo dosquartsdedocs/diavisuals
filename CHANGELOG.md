@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.3.1 - 2026-08-28
 
 - Split ContExt lifecycle commands into factory-scoped build/check/smoke and project-scoped init/serve/down operations.
 - Keep checkout and installed-package manifests portable while deriving client configuration from the declared transport.
