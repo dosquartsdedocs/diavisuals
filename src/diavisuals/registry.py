@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import base64
 import csv
+import fcntl
 import hashlib
+import io
 import json
 import os
 import pathlib
@@ -14,6 +16,8 @@ import sys
 import tempfile
 import threading
 import uuid
+from collections.abc import Iterator
+from contextlib import contextmanager
 from typing import Any
 
 import yaml
@@ -30,6 +34,7 @@ RENDERER_WORKSPACE_LABEL = "io.context.mcp-factory.workspace"
 HEX_COLOR_RE = re.compile(r"#[0-9A-Fa-f]{6}\b")
 STYLE_NAME_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*\Z")
 DOCKER_IMAGE_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._/@:-]*\Z")
+DOCKER_IMAGE_ID_RE = re.compile(r"sha256:[0-9a-f]{64}\Z")
 DOCKER_CONTAINER_ID_RE = re.compile(r"[0-9a-f]{12,64}\Z")
 MAX_RENDERED_ARTIFACT_BYTES = 64 * 1024 * 1024
 MAX_INLINE_ARTIFACT_BYTES = 8 * 1024 * 1024
@@ -131,6 +136,125 @@ def source_checkout() -> pathlib.Path | None:
 def factory_metadata_root() -> pathlib.Path:
     checkout = source_checkout()
     return checkout if checkout is not None else pathlib.Path(__file__).resolve().parent / "assets"
+
+
+def _docker_config_root() -> pathlib.Path:
+    configured = os.environ.get("DOCKER_CONFIG", "").strip()
+    root = pathlib.Path(configured).expanduser() if configured else pathlib.Path.home() / ".docker"
+    return pathlib.Path(os.path.abspath(root))
+
+
+def _docker_endpoint_scope() -> dict[str, str]:
+    context = os.environ.get("DOCKER_CONTEXT", "").strip()
+    if context:
+        if context == "default":
+            return {"kind": "host", "value": "unix:///var/run/docker.sock"}
+        return {"kind": "context", "value": context, "config": str(_docker_config_root())}
+
+    host = os.environ.get("DOCKER_HOST", "").strip()
+    if host:
+        return {"kind": "host", "value": host}
+
+    config_root = _docker_config_root()
+    try:
+        with (config_root / "config.json").open("rb") as config_handle:
+            raw = config_handle.read(1024 * 1024 + 1)
+        config = json.loads(raw) if len(raw) <= 1024 * 1024 else {}
+        current = str(config.get("currentContext") or "").strip() if isinstance(config, dict) else ""
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+        current = ""
+    if current and current != "default":
+        return {"kind": "context", "value": current, "config": str(config_root)}
+    return {"kind": "host", "value": "unix:///var/run/docker.sock"}
+
+
+def _renderer_lock_name(image: str) -> str:
+    scope = json.dumps(_docker_endpoint_scope(), sort_keys=True, separators=(",", ":"))
+    digest = hashlib.sha256(scope.encode("utf-8") + b"\0" + image.encode("utf-8")).hexdigest()
+    return f"{digest}.lock"
+
+
+def _open_renderer_lock_directory() -> int:
+    uid = os.geteuid()
+    directory_flags = os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC | os.O_NOFOLLOW
+    candidates = (
+        (pathlib.Path(f"/run/user/{uid}"), ".unaltra-renderer-locks", True),
+        (pathlib.Path("/tmp"), f".unaltra-renderer-locks-{uid}", False),
+    )
+    failures: list[str] = []
+    for parent, name, private_parent in candidates:
+        parent_descriptor = -1
+        directory_descriptor = -1
+        try:
+            parent_descriptor = os.open(parent, directory_flags)
+            parent_status = os.fstat(parent_descriptor)
+            parent_mode = stat.S_IMODE(parent_status.st_mode)
+            if not stat.S_ISDIR(parent_status.st_mode):
+                raise OSError("lock parent is not a directory")
+            if private_parent:
+                if parent_status.st_uid != uid or parent_mode & 0o077:
+                    raise OSError("runtime lock parent is not private to the current user")
+            elif parent_status.st_uid not in {0, uid} or not parent_status.st_mode & stat.S_ISVTX:
+                raise OSError("temporary lock parent is not sticky and trusted")
+
+            try:
+                os.mkdir(name, mode=0o700, dir_fd=parent_descriptor)
+            except FileExistsError:
+                pass
+            directory_descriptor = os.open(name, directory_flags, dir_fd=parent_descriptor)
+            directory_status = os.fstat(directory_descriptor)
+            directory_mode = stat.S_IMODE(directory_status.st_mode)
+            if (
+                not stat.S_ISDIR(directory_status.st_mode)
+                or directory_status.st_uid != uid
+                or directory_mode & 0o077
+            ):
+                raise OSError("renderer lock directory is not private to the current user")
+            return directory_descriptor
+        except OSError as exc:
+            if directory_descriptor >= 0:
+                os.close(directory_descriptor)
+            failures.append(f"{parent}: {exc}")
+        finally:
+            if parent_descriptor >= 0:
+                os.close(parent_descriptor)
+    raise RuntimeError(f"cannot open shared renderer lock directory: {'; '.join(failures)}")
+
+
+@contextmanager
+def _renderer_build_lock(image: str) -> Iterator[None]:
+    directory_descriptor = _open_renderer_lock_directory()
+    descriptor = -1
+    locked = False
+    try:
+        try:
+            descriptor = os.open(
+                _renderer_lock_name(image),
+                os.O_RDWR | os.O_CREAT | os.O_CLOEXEC | os.O_NOFOLLOW,
+                0o600,
+                dir_fd=directory_descriptor,
+            )
+            lock_status = os.fstat(descriptor)
+            if (
+                not stat.S_ISREG(lock_status.st_mode)
+                or lock_status.st_uid != os.geteuid()
+                or stat.S_IMODE(lock_status.st_mode) & 0o077
+                or lock_status.st_nlink != 1
+            ):
+                raise RuntimeError("renderer build lock is not a private regular file")
+            fcntl.flock(descriptor, fcntl.LOCK_EX)
+        except OSError as exc:
+            raise RuntimeError(f"cannot open renderer build lock: {exc}") from exc
+        locked = True
+        yield
+    finally:
+        try:
+            if locked:
+                fcntl.flock(descriptor, fcntl.LOCK_UN)
+        finally:
+            if descriptor >= 0:
+                os.close(descriptor)
+            os.close(directory_descriptor)
 
 
 def rel(path: pathlib.Path, root: pathlib.Path) -> str:
@@ -244,13 +368,9 @@ def renderer_profile(profile: str = DEFAULT_COMPATIBILITY) -> dict[str, Any]:
     }
 
 
-def build_renderer_image(profile: str = DEFAULT_COMPATIBILITY, *, dry_run: bool = False) -> dict[str, Any]:
-    root = repo_dir()
-    renderer = renderer_profile(profile)
-    if not renderer["ok"]:
-        return {"ok": False, "renderer": renderer}
-
+def _build_renderer_image(renderer: dict[str, Any], root: pathlib.Path, *, dry_run: bool) -> dict[str, Any]:
     values = renderer["values"]
+
     def command_for(context: pathlib.Path | str) -> list[str]:
         return [
             "docker",
@@ -292,15 +412,55 @@ def build_renderer_image(profile: str = DEFAULT_COMPATIBILITY, *, dry_run: bool 
     return {"ok": result["returncode"] == 0, "renderer": renderer, "result": result}
 
 
-def ensure_renderer_image(profile: str = DEFAULT_COMPATIBILITY) -> dict[str, Any]:
+def build_renderer_image(profile: str = DEFAULT_COMPATIBILITY, *, dry_run: bool = False) -> dict[str, Any]:
+    root = repo_dir()
     renderer = renderer_profile(profile)
     if not renderer["ok"]:
         return {"ok": False, "renderer": renderer}
-    inspect = run(["docker", "image", "inspect", renderer["image"]], cwd=repo_dir(), timeout=60)
-    if inspect["returncode"] == 0:
-        return {"ok": True, "renderer": renderer, "inspect": inspect, "built": False}
-    build = build_renderer_image(profile)
-    return {"ok": build.get("ok", False), "renderer": renderer, "inspect": inspect, "build": build, "built": True}
+    if dry_run:
+        return _build_renderer_image(renderer, root, dry_run=True)
+    with _renderer_build_lock(renderer["image"]):
+        return _build_renderer_image(renderer, root, dry_run=False)
+
+
+def _inspect_renderer_image(renderer: dict[str, Any], root: pathlib.Path) -> dict[str, Any]:
+    inspect = run(
+        ["docker", "image", "inspect", "--format", "{{.Id}}", renderer["image"]],
+        cwd=root,
+        timeout=60,
+    )
+    output = str(inspect.get("stdout") or "").strip()
+    image_id = output if inspect["returncode"] == 0 and DOCKER_IMAGE_ID_RE.fullmatch(output) else None
+    return {**inspect, "image_id": image_id}
+
+
+def ensure_renderer_image(profile: str = DEFAULT_COMPATIBILITY) -> dict[str, Any]:
+    root = repo_dir()
+    renderer = renderer_profile(profile)
+    if not renderer["ok"]:
+        return {"ok": False, "renderer": renderer}
+    with _renderer_build_lock(renderer["image"]):
+        inspect = _inspect_renderer_image(renderer, root)
+        if inspect["image_id"]:
+            return {
+                "ok": True,
+                "renderer": renderer,
+                "inspect": inspect,
+                "image_id": inspect["image_id"],
+                "built": False,
+            }
+        build = _build_renderer_image(renderer, root, dry_run=False)
+        if not build.get("ok", False):
+            return {"ok": False, "renderer": renderer, "inspect": inspect, "build": build, "built": True}
+        reinspect = _inspect_renderer_image(renderer, root)
+        return {
+            "ok": bool(reinspect["image_id"]),
+            "renderer": renderer,
+            "inspect": reinspect,
+            "image_id": reinspect["image_id"],
+            "build": build,
+            "built": True,
+        }
 
 
 def path_within(path: pathlib.Path, root: pathlib.Path) -> bool:
@@ -644,6 +804,12 @@ def renderer_container_name(root: pathlib.Path) -> str:
     return f"diavisuals-{renderer_workspace_id(root)}-{uuid.uuid4().hex[:12]}"
 
 
+def _docker_mount_spec(*fields: str) -> str:
+    encoded = io.StringIO()
+    csv.writer(encoded, lineterminator="").writerow(fields)
+    return encoded.getvalue()
+
+
 def _copy_staged_asset(source: pathlib.Path, destination: pathlib.Path, asset_root: pathlib.Path, *, executable: bool = False) -> None:
     resolved = source.resolve(strict=True)
     if not path_within(resolved, asset_root) or not resolved.is_file():
@@ -801,9 +967,9 @@ def build_renderer_command(
         "--tmpfs",
         RENDERER_TMPFS,
         "--mount",
-        f"type=bind,source={bundle},target=/diavisuals,readonly",
+        _docker_mount_spec("type=bind", f"source={bundle}", "target=/diavisuals", "readonly"),
         "--mount",
-        f"type=bind,source={result},target=/output",
+        _docker_mount_spec("type=bind", f"source={result}", "target=/output"),
         "--workdir",
         "/tmp",
         "-e",
@@ -1159,6 +1325,9 @@ def _render_diagram_source(
     image = ensure_renderer_image(profile)
     if not image.get("ok"):
         return {**payload, "ok": False, "image": image}
+    image_id = str(image.get("image_id") or "")
+    if not DOCKER_IMAGE_ID_RE.fullmatch(image_id):
+        return {**payload, "ok": False, "image": image, "error": "renderer did not resolve to an immutable image ID"}
 
     with tempfile.TemporaryDirectory(prefix="diavisuals-render-") as temporary_root:
         stage = stage_renderer_bundle(
@@ -1173,7 +1342,7 @@ def _render_diagram_source(
         container_name = renderer_container_name(root)
         command = build_renderer_command(
             root=root,
-            renderer=renderer,
+            renderer={**renderer, "image": image_id},
             engine=resolved_engine,
             style_name=style_name,
             output_format=output_format,
@@ -1910,29 +2079,31 @@ def down_factory(project_root: str | pathlib.Path = ".") -> dict[str, Any]:
 
 
 def mcp_stdio_command(project: str = "${workspaceFolder}") -> list[str]:
-    return [sys.executable, "-m", "diavisuals.cli", "--project", project, "mcp", "serve"]
+    return [sys.executable, "-m", "diavisuals.cli", "mcp", "serve"]
 
 
 def client_config(project: str = "${workspaceFolder}", command: str = "") -> dict[str, Any]:
-    server_command = [command, "--project", project, "mcp", "serve"] if command else mcp_stdio_command(project)
+    server_command = [command, "mcp", "serve"] if command else mcp_stdio_command(project)
     return {
         "mcpServers": {
             "diavisuals": {
                 "command": server_command[0],
                 "args": server_command[1:],
+                "env": {"MCP_CONSUMER_WORKSPACE": project},
             }
         }
     }
 
 
 def vscode_client_config(project: str = "${workspaceFolder}", command: str = "") -> dict[str, Any]:
-    server_command = [command, "--project", project, "mcp", "serve"] if command else mcp_stdio_command(project)
+    server_command = [command, "mcp", "serve"] if command else mcp_stdio_command(project)
     return {
         "servers": {
             "diavisuals": {
                 "type": "stdio",
                 "command": server_command[0],
                 "args": server_command[1:],
+                "env": {"MCP_CONSUMER_WORKSPACE": project},
             }
         }
     }
@@ -1944,38 +2115,32 @@ def factory_manifest() -> dict[str, Any]:
         factory_launcher = [
             "bash",
             "${factoryRoot}/scripts/factory-launcher",
-            "${factoryRoot}",
         ]
-        project_launcher = [
-            "bash",
-            "${factoryRoot}/scripts/factory-launcher",
-            "${workspaceFolder}",
-        ]
-        transport = ["make", "-C", "${factoryRoot}", "mcp-stdio", "PROJECT=${workspaceFolder}"]
+        transport = ["make", "--no-print-directory", "-C", "${factoryRoot}", "mcp-stdio"]
         commands = {
             "build": ["make", "mcp-build"],
-            "init": ["make", "mcp-init", "PROJECT=${workspaceFolder}"],
+            "init": [*factory_launcher, "init", "${workspaceFolder}"],
             "check": ["make", "mcp-check"],
             "tests": ["make", "tests"],
             "smoke": ["make", "mcp-smoke"],
-            "down": ["make", "mcp-down", "PROJECT=${workspaceFolder}"],
+            "down": [*factory_launcher, "down", "${workspaceFolder}"],
             "update": [*factory_launcher, "update"],
             "release_status": [*factory_launcher, "release-status"],
             "install_check": [*factory_launcher, "install-check"],
             "factory_check": [*factory_launcher, "factory-check"],
-            "install_codex_mcp": [*project_launcher, "install-codex-mcp"],
-            "serve": transport,
+            "install_codex_mcp": [*factory_launcher, "install-codex-mcp", "${workspaceFolder}"],
+            "serve": [*factory_launcher, "serve", "${workspaceFolder}"],
             "manifest": [*factory_launcher, "manifest"],
             "styles": [*factory_launcher, "styles"],
             "audit": [*factory_launcher, "audit"],
-            "project_check": [*project_launcher, "project-check"],
-            "render": [*project_launcher, "render"],
-            "render_text": [*project_launcher, "render-text"],
+            "project_check": [*factory_launcher, "project-check", "${workspaceFolder}"],
+            "render": [*factory_launcher, "render", "${workspaceFolder}"],
+            "render_text": [*factory_launcher, "render-text", "${workspaceFolder}"],
         }
     else:
         factory_cli = ["diavisuals"]
         project_cli = [*factory_cli, "--project", "${workspaceFolder}"]
-        transport = [*project_cli, "mcp", "serve"]
+        transport = [*factory_cli, "mcp", "serve"]
         commands = {
             "build": [*factory_cli, "ensure-renderer"],
             "init": [*project_cli, "init"],
@@ -1988,7 +2153,7 @@ def factory_manifest() -> dict[str, Any]:
             "install_check": [*factory_cli, "install-check"],
             "factory_check": [*factory_cli, "factory-check"],
             "install_codex_mcp": [*project_cli, "install-codex-mcp"],
-            "serve": transport,
+            "serve": [*project_cli, "mcp", "serve"],
             "manifest": [*factory_cli, "factory-manifest"],
             "styles": [*factory_cli, "style-inventory"],
             "audit": [*factory_cli, "style-audit"],
@@ -2005,6 +2170,7 @@ def factory_manifest() -> dict[str, Any]:
         "description": "Workspace-confined diagram styles and hardened Docker rendering for Mermaid and PlantUML.",
         "repository": "https://github.com/dosquartsdedocs/diavisuals",
         "workspace_rule": {
+            "binding": "consumer",
             "consumer_root": ".",
             "source_paths": [
                 "assets/**/*.{mmd,mermaid,puml,plantuml,uml}",
@@ -2025,7 +2191,11 @@ def factory_manifest() -> dict[str, Any]:
             "module": "diavisuals",
             "mcp_version": MCP_VERSION,
         },
-        "transport": {"type": "stdio", "command": transport},
+        "transport": {
+            "type": "stdio",
+            "command": transport,
+            "env": {"MCP_CONSUMER_WORKSPACE": "${workspaceFolder}"},
+        },
         "commands": commands,
         "discovery": {
             "file": "mcp-factory.yml",

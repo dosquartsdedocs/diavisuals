@@ -2,10 +2,46 @@
 set -euo pipefail
 
 FACTORY_ROOT="$(CDPATH= cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd -P)"
-PROJECT_ROOT="${1:?consumer project root is required}"
-OPERATION="${2:?factory operation is required}"
-shift 2
 CLI="${FACTORY_ROOT}/.venv/bin/diavisuals"
+
+case "${1:-}" in
+  build|init|check|tests|smoke|down|update|release-status|install-check|factory-check|install-codex-mcp|serve|client-config|manifest|styles|audit|project-check|render|render-text)
+    OPERATION="$1"
+    PROJECT_ROOT=""
+    shift
+    ;;
+  *)
+    PROJECT_ROOT="${1:?consumer project root is required}"
+    OPERATION="${2:?factory operation is required}"
+    shift 2
+    ;;
+esac
+
+case "${OPERATION}" in
+  init|down|install-codex-mcp|project-check|render|render-text)
+    if [[ -z "${PROJECT_ROOT}" ]]; then
+      PROJECT_ROOT="${1:?consumer project root is required}"
+      shift
+    fi
+    ;;
+  serve)
+    if [[ -z "${PROJECT_ROOT}" ]]; then
+      PROJECT_ROOT="${1:-${MCP_CONSUMER_WORKSPACE:-}}"
+      [[ -n "${PROJECT_ROOT}" ]] || {
+        printf 'Consumer project root is required\n' >&2
+        exit 2
+      }
+      if [[ $# -gt 0 ]]; then
+        shift
+      fi
+    fi
+    ;;
+  *)
+    if [[ -z "${PROJECT_ROOT}" ]]; then
+      PROJECT_ROOT="${FACTORY_ROOT}"
+    fi
+    ;;
+esac
 
 bootstrap() {
   uv --directory "${FACTORY_ROOT}" sync --locked --extra dev --extra mcp --quiet

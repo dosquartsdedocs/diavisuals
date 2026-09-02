@@ -5,6 +5,7 @@ version: 0.3.1
 description: Workspace-confined diagram styles and hardened Docker rendering for Mermaid and PlantUML.
 repository: https://github.com/dosquartsdedocs/diavisuals
 workspace_rule:
+  binding: consumer
   consumer_root: .
   source_paths:
     - "assets/**/*.{mmd,mermaid,puml,plantuml,uml}"
@@ -24,26 +25,28 @@ runtime:
   mcp_version: 1.29.0
 transport:
   type: stdio
-  command: [make, -C, "${factoryRoot}", mcp-stdio, "PROJECT=${workspaceFolder}"]
+  command: [make, --no-print-directory, -C, "${factoryRoot}", mcp-stdio]
+  env:
+    MCP_CONSUMER_WORKSPACE: "${workspaceFolder}"
 commands:
   build: [make, mcp-build]
-  init: [make, mcp-init, "PROJECT=${workspaceFolder}"]
+  init: [bash, "${factoryRoot}/scripts/factory-launcher", init, "${workspaceFolder}"]
   check: [make, mcp-check]
   tests: [make, tests]
   smoke: [make, mcp-smoke]
-  down: [make, mcp-down, "PROJECT=${workspaceFolder}"]
-  update: [bash, "${factoryRoot}/scripts/factory-launcher", "${factoryRoot}", update]
-  release_status: [bash, "${factoryRoot}/scripts/factory-launcher", "${factoryRoot}", release-status]
-  install_check: [bash, "${factoryRoot}/scripts/factory-launcher", "${factoryRoot}", install-check]
-  factory_check: [bash, "${factoryRoot}/scripts/factory-launcher", "${factoryRoot}", factory-check]
-  install_codex_mcp: [bash, "${factoryRoot}/scripts/factory-launcher", "${workspaceFolder}", install-codex-mcp]
-  serve: [make, -C, "${factoryRoot}", mcp-stdio, "PROJECT=${workspaceFolder}"]
-  manifest: [bash, "${factoryRoot}/scripts/factory-launcher", "${factoryRoot}", manifest]
-  styles: [bash, "${factoryRoot}/scripts/factory-launcher", "${factoryRoot}", styles]
-  audit: [bash, "${factoryRoot}/scripts/factory-launcher", "${factoryRoot}", audit]
-  project_check: [bash, "${factoryRoot}/scripts/factory-launcher", "${workspaceFolder}", project-check]
-  render: [bash, "${factoryRoot}/scripts/factory-launcher", "${workspaceFolder}", render]
-  render_text: [bash, "${factoryRoot}/scripts/factory-launcher", "${workspaceFolder}", render-text]
+  down: [bash, "${factoryRoot}/scripts/factory-launcher", down, "${workspaceFolder}"]
+  update: [bash, "${factoryRoot}/scripts/factory-launcher", update]
+  release_status: [bash, "${factoryRoot}/scripts/factory-launcher", release-status]
+  install_check: [bash, "${factoryRoot}/scripts/factory-launcher", install-check]
+  factory_check: [bash, "${factoryRoot}/scripts/factory-launcher", factory-check]
+  install_codex_mcp: [bash, "${factoryRoot}/scripts/factory-launcher", install-codex-mcp, "${workspaceFolder}"]
+  serve: [bash, "${factoryRoot}/scripts/factory-launcher", serve, "${workspaceFolder}"]
+  manifest: [bash, "${factoryRoot}/scripts/factory-launcher", manifest]
+  styles: [bash, "${factoryRoot}/scripts/factory-launcher", styles]
+  audit: [bash, "${factoryRoot}/scripts/factory-launcher", audit]
+  project_check: [bash, "${factoryRoot}/scripts/factory-launcher", project-check, "${workspaceFolder}"]
+  render: [bash, "${factoryRoot}/scripts/factory-launcher", render, "${workspaceFolder}"]
+  render_text: [bash, "${factoryRoot}/scripts/factory-launcher", render-text, "${workspaceFolder}"]
 discovery:
   file: mcp-factory.yml
   suggested_scan_roots: [~/git]

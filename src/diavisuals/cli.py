@@ -294,10 +294,12 @@ def cmd_install_codex_mcp(args: argparse.Namespace) -> int:
         print_payload(payload)
         return 1
 
-    server_command = client_config(project=args.codex_project or ".", command=args.command)["mcpServers"]["diavisuals"]
+    server_command = client_config(project=args.codex_project or args.project, command=args.command)["mcpServers"]["diavisuals"]
     server_parts = [server_command["command"], *server_command.get("args", [])]
+    server_env = server_command.get("env", {})
+    env_args = [value for key, value in server_env.items() for value in ("--env", f"{key}={value}")]
     remove_cmd = [codex_bin, "mcp", "remove", args.server_name]
-    add_cmd = [codex_bin, "mcp", "add", args.server_name, "--", *server_parts]
+    add_cmd = [codex_bin, "mcp", "add", args.server_name, *env_args, "--", *server_parts]
     payload: dict[str, Any] = {
         "ok": True,
         "server_name": args.server_name,
@@ -328,7 +330,11 @@ def cmd_install_codex_mcp(args: argparse.Namespace) -> int:
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="diavisuals")
-    parser.add_argument("--project", default=".", help="Consumer repository root for MCP launchers")
+    parser.add_argument(
+        "--project",
+        default=os.environ.get("MCP_CONSUMER_WORKSPACE", "."),
+        help="Consumer repository root for MCP launchers",
+    )
     parser.add_argument("--version", action="version", version=f"diavisuals {__version__}")
     subcommands = parser.add_subparsers(dest="command", required=True)
 

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import csv
 import hashlib
 import importlib.util
 import json
@@ -9,12 +10,16 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 import diavisuals.registry as registry
+from diavisuals import mcp_server
+from diavisuals.cli import build_parser
+from diavisuals.cli import main as cli_main
 from diavisuals.registry import (
     build_renderer_image,
     check_styles,
@@ -34,6 +39,18 @@ from diavisuals.registry import (
 )
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
+TEST_IMAGE_ID = "sha256:" + "1" * 64
+
+
+def docker_mount_source(command: list[str], target: str) -> Path:
+    for index, value in enumerate(command):
+        if value != "--mount":
+            continue
+        fields = next(csv.reader([command[index + 1]]))
+        options = dict(field.split("=", 1) for field in fields if "=" in field)
+        if options.get("target") == target:
+            return Path(options["source"])
+    raise AssertionError(f"mount target not found: {target}")
 
 
 class RegistryTest(unittest.TestCase):
@@ -126,6 +143,30 @@ class RegistryTest(unittest.TestCase):
             command,
         )
 
+    def test_renderer_lock_name_scopes_docker_endpoint_context_and_image(self) -> None:
+        with mock.patch.dict(
+            os.environ,
+            {"DOCKER_CONTEXT": "", "DOCKER_HOST": "unix:///daemon-one.sock", "XDG_CACHE_HOME": "/tmp/cache-one"},
+        ):
+            first = registry._renderer_lock_name("diavisuals/render:test")
+        with mock.patch.dict(
+            os.environ,
+            {"DOCKER_CONTEXT": "", "DOCKER_HOST": "unix:///daemon-one.sock", "XDG_CACHE_HOME": "/tmp/cache-two"},
+        ):
+            same_daemon = registry._renderer_lock_name("diavisuals/render:test")
+            other_image = registry._renderer_lock_name("diavisuals/render:other")
+        with mock.patch.dict(os.environ, {"DOCKER_CONTEXT": "remote", "DOCKER_HOST": "unix:///daemon-one.sock"}):
+            other_context = registry._renderer_lock_name("diavisuals/render:test")
+
+        self.assertEqual(first, same_daemon)
+        self.assertNotEqual(first, other_image)
+        self.assertNotEqual(first, other_context)
+
+    def test_renderer_build_lock_does_not_mask_body_oserror(self) -> None:
+        with self.assertRaisesRegex(OSError, "renderer body failed"):
+            with registry._renderer_build_lock("diavisuals/render:test-body-error"):
+                raise OSError("renderer body failed")
+
     def test_factory_manifest_and_submodule_plan(self) -> None:
         manifest = factory_manifest()
         self.assertTrue(manifest["ok"], manifest)
@@ -138,14 +179,26 @@ class RegistryTest(unittest.TestCase):
         self.assertEqual(manifest["commands"]["build"], ["make", "mcp-build"])
         self.assertEqual(manifest["commands"]["check"], ["make", "mcp-check"])
         self.assertEqual(manifest["commands"]["smoke"], ["make", "mcp-smoke"])
-        self.assertEqual(manifest["commands"]["init"][-1], "PROJECT=${workspaceFolder}")
-        self.assertEqual(manifest["commands"]["down"][-1], "PROJECT=${workspaceFolder}")
-        self.assertEqual(manifest["commands"]["serve"], manifest["transport"]["command"])
-        self.assertEqual(manifest["commands"]["project_check"][-1], "project-check")
+        self.assertEqual(manifest["commands"]["init"][-2:], ["init", "${workspaceFolder}"])
+        self.assertEqual(manifest["commands"]["down"][-2:], ["down", "${workspaceFolder}"])
+        self.assertEqual(manifest["commands"]["serve"][-2:], ["serve", "${workspaceFolder}"])
+        self.assertEqual(
+            manifest["transport"]["command"],
+            ["make", "--no-print-directory", "-C", "${factoryRoot}", "mcp-stdio"],
+        )
+        self.assertEqual(
+            manifest["transport"]["env"],
+            {"MCP_CONSUMER_WORKSPACE": "${workspaceFolder}"},
+        )
+        self.assertEqual(manifest["commands"]["project_check"][-2:], ["project-check", "${workspaceFolder}"])
         self.assertNotIn("client_config", manifest["commands"])
+        self.assertEqual(manifest["workspace_rule"]["binding"], "consumer")
         self.assertEqual(manifest["workspace_rule"]["consumer_root"], ".")
         self.assertIn(".cache/diavisuals", manifest["workspace_rule"]["generated_paths"])
         self.assertEqual(manifest["contracts"]["container_consumer_mount"], "none")
+        makefile = (REPO_ROOT / "Makefile").read_text(encoding="utf-8")
+        for variable in ("CURDIR", "INPUT", "OUTPUT", "OUT_DIR", "COMPAT_PROFILE"):
+            self.assertNotIn(f"$({variable})", makefile)
         self.assertTrue(factory_check(REPO_ROOT)["ok"], factory_check(REPO_ROOT))
 
         package_static = registry.yaml.safe_load((REPO_ROOT / "mcp-factory-package.yml").read_text(encoding="utf-8"))
@@ -405,7 +458,80 @@ class RegistryTest(unittest.TestCase):
         server = config["mcpServers"]["diavisuals"]
 
         self.assertEqual(server["command"], sys.executable)
-        self.assertEqual(server["args"], ["-m", "diavisuals.cli", "--project", "/tmp/project", "mcp", "serve"])
+        self.assertEqual(server["args"], ["-m", "diavisuals.cli", "mcp", "serve"])
+        self.assertEqual(server["env"], {"MCP_CONSUMER_WORKSPACE": "/tmp/project"})
+
+    def test_cli_uses_the_literal_consumer_environment_as_its_default_root(self) -> None:
+        project = "/tmp/consumer $value $(touch never) `touch never-either`"
+        with mock.patch.dict(os.environ, {"MCP_CONSUMER_WORKSPACE": project}):
+            args = build_parser().parse_args(["mcp", "serve"])
+        self.assertEqual(args.project, project)
+
+    def test_codex_dry_run_registers_the_consumer_environment(self) -> None:
+        project = "/tmp/consumer $value $(touch never) `touch never-either`"
+        with mock.patch("diavisuals.cli.print_payload") as output:
+            result = cli_main(
+                [
+                    "--project",
+                    project,
+                    "install-codex-mcp",
+                    "--codex-bin",
+                    "codex-test",
+                    "--dry-run",
+                ]
+            )
+        self.assertEqual(result, 0)
+        add = output.call_args.args[0]["add"]
+        self.assertIn(f"MCP_CONSUMER_WORKSPACE={project}", add)
+        self.assertNotIn("--project", add)
+
+    def test_mcp_consumer_root_is_canonical_before_the_working_directory_changes(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            parent = Path(tmp)
+            first = parent / "first"
+            second = parent / "second"
+            first.mkdir()
+            second.mkdir()
+            previous = Path.cwd()
+            try:
+                os.chdir(parent)
+                consumer_root = mcp_server._resolve_consumer_root(Path("first"))
+                os.chdir(second)
+            finally:
+                os.chdir(previous)
+
+        self.assertTrue(consumer_root.is_absolute())
+        self.assertEqual(consumer_root, first.resolve())
+
+    def test_distinct_consumer_workspaces_publish_state_concurrently_without_crossing(self) -> None:
+        with tempfile.TemporaryDirectory() as first_tmp, tempfile.TemporaryDirectory() as second_tmp:
+            roots = [Path(first_tmp), Path(second_tmp)]
+            names = ["first.mmd", "second.puml"]
+            sources = ["flowchart LR\n  A --> B\n", "@startuml\nAlice -> Bob\n@enduml\n"]
+            for root, name, content in zip(roots, names, sources, strict=True):
+                source = root / "assets/diagrams" / name
+                output = Path(str(source) + ".svg")
+                source.parent.mkdir(parents=True)
+                source.write_text(content, encoding="utf-8")
+                output.write_text("<svg xmlns='http://www.w3.org/2000/svg'/>\n", encoding="utf-8")
+                os.utime(source, ns=(1_000_000_000, 1_000_000_000))
+                os.utime(output, ns=(2_000_000_000, 2_000_000_000))
+
+            def check(root: Path) -> dict[str, object]:
+                registry.initialize_project(root)
+                return project_check(root)
+
+            with ThreadPoolExecutor(max_workers=2) as executor:
+                results = list(executor.map(check, roots))
+
+            self.assertTrue(all(result["ok"] for result in results), results)
+            receipts = [
+                json.loads((root / registry.PROJECT_RECEIPT_PATH).read_text(encoding="utf-8"))
+                for root in roots
+            ]
+            self.assertEqual(receipts[0]["artifacts"][0]["path"], "assets/diagrams/first.mmd.svg")
+            self.assertEqual(receipts[1]["artifacts"][0]["path"], "assets/diagrams/second.puml.svg")
+            self.assertNotEqual(registry.renderer_workspace_id(roots[0]), registry.renderer_workspace_id(roots[1]))
 
     def test_initialize_project_is_idempotent_and_does_not_follow_a_raced_cache_symlink(self) -> None:
         with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as external_tmp:
@@ -765,6 +891,26 @@ class RegistryTest(unittest.TestCase):
         self.assertNotIn("readonly", mounts[1])
         self.assertNotIn(str(REPO_ROOT), " ".join(mounts))
 
+    def test_renderer_mounts_csv_encode_commas_and_quotes(self) -> None:
+        bundle = Path('/tmp/diavisuals,stage"quoted/bundle')
+        result = bundle.parent / "result"
+        command = registry.build_renderer_command(
+            root=REPO_ROOT,
+            renderer={"image": "diavisuals/render:test"},
+            engine="mermaid",
+            style_name="benizar-mermaid",
+            output_format="svg",
+            bundle=bundle,
+            result=result,
+            cidfile=bundle.parent / "container.cid",
+            container_name="diavisuals-test",
+        )
+
+        self.assertEqual(docker_mount_source(command, "/diavisuals"), bundle)
+        self.assertEqual(docker_mount_source(command, "/output"), result)
+        mounts = [command[index + 1] for index, value in enumerate(command) if value == "--mount"]
+        self.assertTrue(all('""' in mount for mount in mounts))
+
     def test_renderer_user_never_maps_host_root(self) -> None:
         with mock.patch.object(registry.os, "getuid", return_value=0), mock.patch.object(
             registry.os, "getgid", return_value=0
@@ -782,9 +928,8 @@ class RegistryTest(unittest.TestCase):
             os.link(linked, output)
 
             def fake_run(command: list[str], **kwargs: object) -> dict[str, object]:
-                mounts = [command[index + 1] for index, value in enumerate(command) if value == "--mount"]
-                bundle = Path(mounts[0].split("source=", 1)[1].split(",target=", 1)[0])
-                result_dir = Path(mounts[1].split("source=", 1)[1].split(",target=", 1)[0])
+                bundle = docker_mount_source(command, "/diavisuals")
+                result_dir = docker_mount_source(command, "/output")
                 files = {path.relative_to(bundle).as_posix() for path in bundle.rglob("*") if path.is_file()}
 
                 self.assertIn("input/source.mmd", files)
@@ -800,6 +945,8 @@ class RegistryTest(unittest.TestCase):
                 self.assertEqual((bundle / "input/source.mmd").read_text(encoding="utf-8"), source.read_text(encoding="utf-8"))
                 self.assertNotIn(str(project), " ".join(command))
                 self.assertNotIn(str(REPO_ROOT), " ".join(command))
+                self.assertIn(TEST_IMAGE_ID, command)
+                self.assertNotIn("diavisuals/render:v0.3.0", command)
 
                 (result_dir / "artifact.svg").write_text("<svg><!-- new data --></svg>\n", encoding="utf-8")
                 return {
@@ -811,7 +958,9 @@ class RegistryTest(unittest.TestCase):
                     "cleanup": {"ok": True},
                 }
 
-            with mock.patch.object(registry, "ensure_renderer_image", return_value={"ok": True}), mock.patch.object(
+            with mock.patch.object(
+                registry, "ensure_renderer_image", return_value={"ok": True, "image_id": TEST_IMAGE_ID}
+            ), mock.patch.object(
                 registry, "_run_renderer", side_effect=fake_run
             ):
                 result = render_diagram(
@@ -835,12 +984,7 @@ class RegistryTest(unittest.TestCase):
                 output.write_text("<svg><!-- existing --></svg>\n", encoding="utf-8")
 
                 def fake_run(command: list[str], **kwargs: object) -> dict[str, object]:
-                    mount = next(
-                        command[index + 1]
-                        for index, value in enumerate(command)
-                        if value == "--mount" and "target=/output" in command[index + 1]
-                    )
-                    result_dir = Path(mount.split("source=", 1)[1].split(",target=", 1)[0])
+                    result_dir = docker_mount_source(command, "/output")
                     (result_dir / "artifact.svg").write_text(staged_data, encoding="utf-8")
                     return {
                         "command": command,
@@ -851,7 +995,9 @@ class RegistryTest(unittest.TestCase):
                         "cleanup": {"ok": True},
                     }
 
-                with mock.patch.object(registry, "ensure_renderer_image", return_value={"ok": True}), mock.patch.object(
+                with mock.patch.object(
+                    registry, "ensure_renderer_image", return_value={"ok": True, "image_id": TEST_IMAGE_ID}
+                ), mock.patch.object(
                     registry, "_run_renderer", side_effect=fake_run
                 ):
                     result = render_diagram(project, input_path="diagram.mmd", output_path="diagram.svg")
@@ -870,12 +1016,7 @@ class RegistryTest(unittest.TestCase):
             output.write_text("<svg><!-- existing --></svg>\n", encoding="utf-8")
 
             def fake_run(command: list[str], **kwargs: object) -> dict[str, object]:
-                mount = next(
-                    command[index + 1]
-                    for index, value in enumerate(command)
-                    if value == "--mount" and "target=/output" in command[index + 1]
-                )
-                result_dir = Path(mount.split("source=", 1)[1].split(",target=", 1)[0])
+                result_dir = docker_mount_source(command, "/output")
                 (result_dir / "artifact.svg").symlink_to(secret)
                 return {
                     "command": command,
@@ -886,7 +1027,9 @@ class RegistryTest(unittest.TestCase):
                     "cleanup": {"ok": True},
                 }
 
-            with mock.patch.object(registry, "ensure_renderer_image", return_value={"ok": True}), mock.patch.object(
+            with mock.patch.object(
+                registry, "ensure_renderer_image", return_value={"ok": True, "image_id": TEST_IMAGE_ID}
+            ), mock.patch.object(
                 registry, "_run_renderer", side_effect=fake_run
             ):
                 result = render_diagram(project, input_path="diagram.mmd", output_path="diagram.svg")
@@ -1137,63 +1280,84 @@ class RegistryTest(unittest.TestCase):
             from mcp import ClientSession, StdioServerParameters
             from mcp.client.stdio import stdio_client
 
-            params = StdioServerParameters(
-                command=sys.executable,
-                args=["-m", "diavisuals.cli", "--project", str(REPO_ROOT), "mcp", "serve"],
-                env={**os.environ, "PYTHONPATH": str(REPO_ROOT / "src")},
-            )
-            async with stdio_client(params) as (read, write):
-                async with ClientSession(read, write) as session:
-                    await session.initialize()
-                    resources = await session.list_resources()
-                    resource_uris = {str(resource.uri) for resource in resources.resources}
-                    self.assertIn("diavisuals://styles", resource_uris)
-                    self.assertIn("diavisuals://style-audit", resource_uris)
-                    self.assertIn("diavisuals://project/check", resource_uris)
-                    self.assertIn("diavisuals://factory-manifest", resource_uris)
+            with tempfile.TemporaryDirectory() as temporary:
+                project = Path(temporary) / "consumer $dollar $(shell printf make-expanded) `printf tick-expanded`"
+                project.mkdir()
+                factory_root = os.environ.get("DIAVISUALS_MCP_FACTORY_ROOT")
+                environment = {**os.environ, "PYTHONPATH": str(REPO_ROOT / "src")}
+                if factory_root:
+                    factory = Path(factory_root).resolve()
+                    manifest = registry.yaml.safe_load((factory / "mcp-factory.yml").read_text(encoding="utf-8"))
+                    transport = manifest["transport"]
 
-                    tools = await session.list_tools()
-                    tool_names = {tool.name for tool in tools.tools}
-                    self.assertIn("style_inventory", tool_names)
-                    self.assertIn("style_audit", tool_names)
-                    self.assertIn("submodule_plan", tool_names)
-                    self.assertIn("project_check", tool_names)
-                    self.assertIn("render_diagram_text", tool_names)
+                    def expand(value: object) -> str:
+                        return str(value).replace("${factoryRoot}", str(factory)).replace(
+                            "${workspaceFolder}", str(project)
+                        )
 
-                    result = await session.call_tool("style_inventory", {})
-                    text = "\n".join(getattr(item, "text", "") for item in result.content)
-                    self.assertIn("benizar", text)
-
-                    audit = await session.call_tool("style_audit", {})
-                    audit_text = "\n".join(getattr(item, "text", "") for item in audit.content)
-                    self.assertIn("vendored-package-assets", audit_text)
-
-                    render = await session.call_tool(
-                        "render_diagram_text",
-                        {
-                            "diagram_text": "flowchart TD\n  A --> B\n",
-                            "include_data": False,
-                            "dry_run": True,
-                        },
+                    transport_command = [expand(value) for value in transport["command"]]
+                    command, *arguments = transport_command
+                    environment.update(
+                        {str(key): expand(value) for key, value in transport.get("env", {}).items()}
                     )
-                    render_text = "\n".join(getattr(item, "text", "") for item in render.content)
-                    self.assertIn("benizar-mermaid", render_text)
-                    self.assertIn("dry_run", render_text)
+                else:
+                    command = sys.executable
+                    arguments = ["-m", "diavisuals.cli", "--project", str(project), "mcp", "serve"]
+                params = StdioServerParameters(command=command, args=arguments, env=environment)
+                async with stdio_client(params) as (read, write):
+                    async with ClientSession(read, write) as session:
+                        await session.initialize()
+                        resources = await session.list_resources()
+                        resource_uris = {str(resource.uri) for resource in resources.resources}
+                        self.assertIn("diavisuals://styles", resource_uris)
+                        self.assertIn("diavisuals://style-audit", resource_uris)
+                        self.assertIn("diavisuals://project/check", resource_uris)
+                        self.assertIn("diavisuals://factory-manifest", resource_uris)
 
-                    invalid = await session.call_tool(
-                        "render_diagram",
-                        {
-                            "input_path": "../outside.mmd",
-                            "output_path": "diagram.svg",
-                            "dry_run": True,
-                        },
-                    )
-                    self.assertTrue(invalid.isError)
-                    invalid_text = "\n".join(getattr(item, "text", "") for item in invalid.content)
-                    self.assertIn("outside the project root", invalid_text)
-                    self.assertIsNotNone(invalid.structuredContent)
-                    self.assertIs(invalid.structuredContent["ok"], False)
-                    self.assertIn("outside the project root", invalid.structuredContent["error"])
+                        tools = await session.list_tools()
+                        tool_names = {tool.name for tool in tools.tools}
+                        self.assertIn("style_inventory", tool_names)
+                        self.assertIn("style_audit", tool_names)
+                        self.assertIn("submodule_plan", tool_names)
+                        self.assertIn("project_check", tool_names)
+                        self.assertIn("render_diagram_text", tool_names)
+
+                        result = await session.call_tool("style_inventory", {})
+                        text = "\n".join(getattr(item, "text", "") for item in result.content)
+                        self.assertIn("benizar", text)
+
+                        audit = await session.call_tool("style_audit", {})
+                        audit_text = "\n".join(getattr(item, "text", "") for item in audit.content)
+                        self.assertIn("vendored-package-assets", audit_text)
+
+                        render = await session.call_tool(
+                            "render_diagram_text",
+                            {
+                                "diagram_text": "flowchart TD\n  A --> B\n",
+                                "include_data": False,
+                                "dry_run": True,
+                            },
+                        )
+                        render_text = "\n".join(getattr(item, "text", "") for item in render.content)
+                        render_payload = json.loads(render_text)
+                        self.assertEqual(render_payload["project"], str(project))
+                        self.assertEqual(render_payload["style"], "benizar-mermaid")
+                        self.assertTrue(render_payload["dry_run"])
+
+                        invalid = await session.call_tool(
+                            "render_diagram",
+                            {
+                                "input_path": "../outside.mmd",
+                                "output_path": "diagram.svg",
+                                "dry_run": True,
+                            },
+                        )
+                        self.assertTrue(invalid.isError)
+                        invalid_text = "\n".join(getattr(item, "text", "") for item in invalid.content)
+                        self.assertIn("outside the project root", invalid_text)
+                        self.assertIsNotNone(invalid.structuredContent)
+                        self.assertIs(invalid.structuredContent["ok"], False)
+                        self.assertIn("outside the project root", invalid.structuredContent["error"])
 
         asyncio.run(run_smoke())
 

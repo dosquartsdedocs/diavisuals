@@ -5,6 +5,7 @@ version: 0.3.1
 description: Workspace-confined diagram styles and hardened Docker rendering for Mermaid and PlantUML.
 repository: https://github.com/dosquartsdedocs/diavisuals
 workspace_rule:
+  binding: consumer
   consumer_root: .
   source_paths:
     - "assets/**/*.{mmd,mermaid,puml,plantuml,uml}"
@@ -24,7 +25,9 @@ runtime:
   mcp_version: 1.29.0
 transport:
   type: stdio
-  command: [diavisuals, --project, "${workspaceFolder}", mcp, serve]
+  command: [diavisuals, mcp, serve]
+  env:
+    MCP_CONSUMER_WORKSPACE: "${workspaceFolder}"
 commands:
   build: [diavisuals, ensure-renderer]
   init: [diavisuals, --project, "${workspaceFolder}", init]
