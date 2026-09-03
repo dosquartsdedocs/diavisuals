@@ -1,6 +1,7 @@
 schema_version: 1
 name: diavisuals
 kind: codex-mcp-factory
+install_scope: user
 version: 0.3.1
 description: Workspace-confined diagram styles and hardened Docker rendering for Mermaid and PlantUML.
 repository: https://github.com/dosquartsdedocs/diavisuals
