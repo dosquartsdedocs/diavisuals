@@ -114,14 +114,18 @@ The stdio MCP server is:
 
 ```bash
 diavisuals --project /path/to/consumer-repo mcp serve
+MCP_CONSUMER_WORKSPACE=/path/to/consumer-repo diavisuals mcp serve
+MCP_CONSUMER_WORKSPACE=/path/to/consumer-repo make --no-print-directory mcp-stdio
 ```
 
 The root `mcp-factory.yml` file is the checkout discovery contract for external
 launchers such as ContExt. Its build, check, test, and smoke commands are
 factory-scoped; init, stdio serve, and down receive the selected workspace. The
 manifest transport is sufficient to derive client configuration, so launchers
-do not need to execute a separate client-config command. Installed wheels carry
-a distinct package manifest that uses the portable `diavisuals` entrypoint and
+do not need to execute a separate client-config command. Stdio transports bind
+the literal workspace placeholder through `MCP_CONSUMER_WORKSPACE`; lifecycle
+commands pass project roots as quoted argv entries. Installed wheels carry a
+distinct package manifest that uses the portable `diavisuals` entrypoint and
 does not depend on Make, a checkout path, or `scripts/factory-launcher`.
 
 For unaltraweb consumers, `project-check` inspects Mermaid and PlantUML sources

@@ -6,7 +6,18 @@ from typing import Any
 from . import registry as core
 
 
+def _resolve_consumer_root(project: pathlib.Path) -> pathlib.Path:
+    try:
+        root = project.expanduser().resolve(strict=True)
+    except OSError as exc:
+        raise FileNotFoundError(f"consumer project root not found: {project}") from exc
+    if not root.is_dir():
+        raise NotADirectoryError(f"consumer project root is not a directory: {project}")
+    return root
+
+
 def run_server(project: pathlib.Path) -> None:
+    consumer_root = _resolve_consumer_root(project)
     try:
         from mcp.server.fastmcp import FastMCP
         from mcp.types import CallToolResult, TextContent
@@ -16,7 +27,6 @@ def run_server(project: pathlib.Path) -> None:
             "python3 -m pip install 'diavisuals[mcp]'"
         ) from exc
 
-    consumer_root = project.expanduser().resolve()
     mcp = FastMCP("diavisuals")
 
     def require_ok(payload: dict[str, Any]) -> Any:
