@@ -2078,12 +2078,12 @@ def down_factory(project_root: str | pathlib.Path = ".") -> dict[str, Any]:
     }
 
 
-def mcp_stdio_command(project: str = "${workspaceFolder}") -> list[str]:
+def mcp_stdio_command() -> list[str]:
     return [sys.executable, "-m", "diavisuals.cli", "mcp", "serve"]
 
 
 def client_config(project: str = "${workspaceFolder}", command: str = "") -> dict[str, Any]:
-    server_command = [command, "mcp", "serve"] if command else mcp_stdio_command(project)
+    server_command = [command, "mcp", "serve"] if command else mcp_stdio_command()
     return {
         "mcpServers": {
             "diavisuals": {
@@ -2096,7 +2096,7 @@ def client_config(project: str = "${workspaceFolder}", command: str = "") -> dic
 
 
 def vscode_client_config(project: str = "${workspaceFolder}", command: str = "") -> dict[str, Any]:
-    server_command = [command, "mcp", "serve"] if command else mcp_stdio_command(project)
+    server_command = [command, "mcp", "serve"] if command else mcp_stdio_command()
     return {
         "servers": {
             "diavisuals": {
@@ -2112,17 +2112,18 @@ def vscode_client_config(project: str = "${workspaceFolder}", command: str = "")
 def factory_manifest() -> dict[str, Any]:
     checkout = source_checkout()
     if checkout is not None:
+        factory_make = ["make", "--no-print-directory", "-C", "${factoryRoot}"]
         factory_launcher = [
             "bash",
             "${factoryRoot}/scripts/factory-launcher",
         ]
-        transport = ["make", "--no-print-directory", "-C", "${factoryRoot}", "mcp-stdio"]
+        transport = [*factory_make, "mcp-stdio"]
         commands = {
-            "build": ["make", "mcp-build"],
+            "build": [*factory_make, "mcp-build"],
             "init": [*factory_launcher, "init", "${workspaceFolder}"],
-            "check": ["make", "mcp-check"],
-            "tests": ["make", "tests"],
-            "smoke": ["make", "mcp-smoke"],
+            "check": [*factory_make, "mcp-check"],
+            "tests": [*factory_make, "tests"],
+            "smoke": [*factory_make, "mcp-smoke"],
             "down": [*factory_launcher, "down", "${workspaceFolder}"],
             "update": [*factory_launcher, "update"],
             "release_status": [*factory_launcher, "release-status"],
@@ -2166,6 +2167,7 @@ def factory_manifest() -> dict[str, Any]:
         "schema_version": 1,
         "name": "diavisuals",
         "kind": "codex-mcp-factory",
+        "install_scope": "user",
         "version": __version__,
         "description": "Workspace-confined diagram styles and hardened Docker rendering for Mermaid and PlantUML.",
         "repository": "https://github.com/dosquartsdedocs/diavisuals",
@@ -2256,6 +2258,7 @@ def factory_check(project_root: str | pathlib.Path = ".") -> dict[str, Any]:
                 "schema_version",
                 "name",
                 "kind",
+                "install_scope",
                 "version",
                 "description",
                 "repository",

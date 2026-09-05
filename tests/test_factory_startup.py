@@ -14,6 +14,22 @@ REPO_ROOT = pathlib.Path(__file__).resolve().parents[1]
 
 
 class FactoryStartupTest(unittest.TestCase):
+    def test_stdio_launcher_reports_unresolvable_workspace(self) -> None:
+        missing = REPO_ROOT / "missing-consumer-workspace"
+        completed = subprocess.run(
+            ["bash", str(REPO_ROOT / "scripts/mcp-stdio-launcher"), "/bin/true"],
+            cwd=REPO_ROOT,
+            env={**os.environ, "MCP_CONSUMER_WORKSPACE": str(missing)},
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=False,
+        )
+
+        self.assertEqual(completed.returncode, 2)
+        self.assertEqual(completed.stdout, "")
+        self.assertEqual(completed.stderr, f"Consumer workspace cannot be resolved: {missing}\n")
+
     def test_concurrent_environment_bound_starts_preserve_literal_roots(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = pathlib.Path(temporary)

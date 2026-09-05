@@ -18,7 +18,6 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 import diavisuals.registry as registry
 from diavisuals import mcp_server
-from diavisuals.cli import build_parser
 from diavisuals.cli import main as cli_main
 from diavisuals.registry import (
     build_renderer_image,
@@ -171,14 +170,17 @@ class RegistryTest(unittest.TestCase):
         manifest = factory_manifest()
         self.assertTrue(manifest["ok"], manifest)
         self.assertEqual(manifest["name"], "diavisuals")
+        self.assertEqual(manifest["install_scope"], "user")
         self.assertIn("style_inventory", manifest["mcp"]["required_tools"])
         self.assertIn("style_audit", manifest["mcp"]["required_tools"])
         self.assertIn("project_check", manifest["mcp"]["required_tools"])
         self.assertIn("render_diagram", manifest["mcp"]["required_tools"])
         self.assertIn("render_diagram_text", manifest["mcp"]["required_tools"])
-        self.assertEqual(manifest["commands"]["build"], ["make", "mcp-build"])
-        self.assertEqual(manifest["commands"]["check"], ["make", "mcp-check"])
-        self.assertEqual(manifest["commands"]["smoke"], ["make", "mcp-smoke"])
+        factory_make = ["make", "--no-print-directory", "-C", "${factoryRoot}"]
+        self.assertEqual(manifest["commands"]["build"], [*factory_make, "mcp-build"])
+        self.assertEqual(manifest["commands"]["check"], [*factory_make, "mcp-check"])
+        self.assertEqual(manifest["commands"]["tests"], [*factory_make, "tests"])
+        self.assertEqual(manifest["commands"]["smoke"], [*factory_make, "mcp-smoke"])
         self.assertEqual(manifest["commands"]["init"][-2:], ["init", "${workspaceFolder}"])
         self.assertEqual(manifest["commands"]["down"][-2:], ["down", "${workspaceFolder}"])
         self.assertEqual(manifest["commands"]["serve"][-2:], ["serve", "${workspaceFolder}"])
@@ -208,6 +210,7 @@ class RegistryTest(unittest.TestCase):
             "schema_version",
             "name",
             "kind",
+            "install_scope",
             "version",
             "description",
             "repository",
@@ -461,11 +464,47 @@ class RegistryTest(unittest.TestCase):
         self.assertEqual(server["args"], ["-m", "diavisuals.cli", "mcp", "serve"])
         self.assertEqual(server["env"], {"MCP_CONSUMER_WORKSPACE": "/tmp/project"})
 
-    def test_cli_uses_the_literal_consumer_environment_as_its_default_root(self) -> None:
+        vscode_server = registry.vscode_client_config("/tmp/project")["servers"]["diavisuals"]
+        self.assertEqual(vscode_server["command"], sys.executable)
+        self.assertEqual(vscode_server["args"], ["-m", "diavisuals.cli", "mcp", "serve"])
+        self.assertEqual(vscode_server["env"], {"MCP_CONSUMER_WORKSPACE": "/tmp/project"})
+        self.assertEqual(registry.mcp_stdio_command(), [sys.executable, "-m", "diavisuals.cli", "mcp", "serve"])
+
+    def test_cli_scopes_the_consumer_environment_to_mcp_serve(self) -> None:
         project = "/tmp/consumer $value $(touch never) `touch never-either`"
-        with mock.patch.dict(os.environ, {"MCP_CONSUMER_WORKSPACE": project}):
-            args = build_parser().parse_args(["mcp", "serve"])
-        self.assertEqual(args.project, project)
+        with mock.patch.dict(os.environ, {"MCP_CONSUMER_WORKSPACE": project}), mock.patch(
+            "diavisuals.mcp_server.run_server"
+        ) as run_server:
+            self.assertEqual(cli_main(["mcp", "serve"]), 0)
+        run_server.assert_called_once_with(Path(project))
+
+        with mock.patch.dict(os.environ, {"MCP_CONSUMER_WORKSPACE": project}), mock.patch(
+            "diavisuals.cli.factory_check", return_value={"ok": True}
+        ) as check:
+            self.assertEqual(cli_main(["factory-check"]), 0)
+        check.assert_called_once_with(".")
+
+        explicit = "/tmp/explicit-project"
+        with mock.patch.dict(os.environ, {"MCP_CONSUMER_WORKSPACE": project}), mock.patch(
+            "diavisuals.mcp_server.run_server"
+        ) as run_server:
+            self.assertEqual(cli_main(["--project", explicit, "mcp", "serve"]), 0)
+        run_server.assert_called_once_with(Path(explicit))
+
+    def test_factory_check_compares_install_scope(self) -> None:
+        static = registry.yaml.safe_load((REPO_ROOT / "mcp-factory.yml").read_text(encoding="utf-8"))
+        static["install_scope"] = "workspace"
+        with tempfile.TemporaryDirectory() as tmp:
+            metadata_root = Path(tmp)
+            (metadata_root / "mcp-factory.yml").write_text(
+                registry.yaml.safe_dump(static, sort_keys=False),
+                encoding="utf-8",
+            )
+            with mock.patch.object(registry, "factory_metadata_root", return_value=metadata_root):
+                result = factory_check(REPO_ROOT)
+
+        self.assertFalse(result["ok"])
+        self.assertIn("static factory manifest does not match install_scope", result["issues"])
 
     def test_codex_dry_run_registers_the_consumer_environment(self) -> None:
         project = "/tmp/consumer $value $(touch never) `touch never-either`"

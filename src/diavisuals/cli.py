@@ -332,8 +332,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="diavisuals")
     parser.add_argument(
         "--project",
-        default=os.environ.get("MCP_CONSUMER_WORKSPACE", "."),
-        help="Consumer repository root for MCP launchers",
+        default=None,
+        help="Consumer repository root; MCP serve defaults to MCP_CONSUMER_WORKSPACE",
     )
     parser.add_argument("--version", action="version", version=f"diavisuals {__version__}")
     subcommands = parser.add_subparsers(dest="command", required=True)
@@ -459,6 +459,9 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
+    stdio_serve = args.command == "mcp" and args.mcp_command == "serve"
+    if args.project is None:
+        args.project = os.environ.get("MCP_CONSUMER_WORKSPACE", ".") if stdio_serve else "."
     try:
         return int(args.func(args))
     except Exception as exc:
