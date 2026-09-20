@@ -2184,6 +2184,22 @@ def factory_manifest() -> dict[str, Any]:
                 ".unaltraweb/receipts/diavisuals.json",
             ],
             "init_creates": [".cache/diavisuals"],
+            "path_policies": [
+                {
+                    "path": ".cache/diavisuals",
+                    "type": "directory",
+                    "role": "diagram-render-cache",
+                    "git": "ignored",
+                    "cleanup": "disposable",
+                },
+                {
+                    "path": PROJECT_RECEIPT_PATH.as_posix(),
+                    "type": "file",
+                    "role": "diagram-validation-receipt",
+                    "git": "consumer",
+                    "cleanup": "explicit",
+                },
+            ],
             "allowed_external_writes": [],
         },
         "runtime": {
