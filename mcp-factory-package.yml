@@ -17,6 +17,17 @@ workspace_rule:
     - .unaltraweb/receipts/diavisuals.json
   init_creates:
     - .cache/diavisuals
+  path_policies:
+    - path: .cache/diavisuals
+      type: directory
+      role: diagram-render-cache
+      git: ignored
+      cleanup: disposable
+    - path: .unaltraweb/receipts/diavisuals.json
+      type: file
+      role: diagram-validation-receipt
+      git: consumer
+      cleanup: explicit
   allowed_external_writes: []
 runtime:
   kind: python

@@ -135,6 +135,15 @@ modifying project content. It requires a fresh `source.svg`, preferring
 at `.unaltraweb/receipts/diavisuals.json`. A failed check invalidates an older
 receipt.
 
+The schema-version-1 manifests declare two consumer-relative
+[`workspace_rule.path_policies`](docs/mcp-contract.md#workspace-path-policies):
+`.cache/diavisuals` is an ignored, disposable render cache;
+`.unaltraweb/receipts/diavisuals.json` is a provider receipt whose Git treatment
+is consumer-owned and whose cleanup is explicit. Consumers must ignore the
+cache and keep it out of the Git index. `init` creates the cache directory;
+it does not edit Git configuration. `workspace-check` inspects these policies
+without running provider commands, and `down` preserves consumer files.
+
 ## Rendered Gallery
 
 The default gallery is generated for release `v0.3.1`. It retains the `v0.3.0` renderer image and compatibility profile `mermaid-11.16.0-plantuml-1.2026.1`: Mermaid CLI 11.16.0 and PlantUML 1.2026.1. The full manifest is [`docs/gallery/benizar/mermaid-11.16.0-plantuml-1.2026.1/manifest.csv`](docs/gallery/benizar/mermaid-11.16.0-plantuml-1.2026.1/manifest.csv).
