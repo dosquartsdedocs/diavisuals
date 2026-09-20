@@ -53,11 +53,15 @@ def tree_snapshot(root: Path) -> dict[str, tuple[int, int, str]]:
 
 
 def consumer_snapshot(root: Path) -> dict[str, object]:
+    head = git(root, "rev-parse", "HEAD")
+    status = git(root, "status", "--porcelain=v1", "-z", "--untracked-files=all", "--ignored=matching")
+    worktrees = git(root, "worktree", "list", "--porcelain")
+    # Finish Git inspection before capturing both copies of the index state.
     return {
-        "head": git(root, "rev-parse", "HEAD"),
+        "head": head,
         "index": (root / ".git/index").read_bytes(),
-        "status": git(root, "status", "--porcelain=v1", "-z", "--untracked-files=all", "--ignored=matching"),
-        "worktrees": git(root, "worktree", "list", "--porcelain"),
+        "status": status,
+        "worktrees": worktrees,
         "tree": tree_snapshot(root),
     }
 
@@ -81,7 +85,7 @@ class WorkspaceManifestTest(unittest.TestCase):
     def test_factory_ignore_really_covers_cache_without_tracked_content(self) -> None:
         for path in (f"{CACHE}/", f"{CACHE}/outputs/mermaid/example.svg", f"{CACHE}/nested/probe.txt"):
             matched = git(REPO_ROOT, "check-ignore", "--no-index", "--verbose", "--", path).decode()
-            self.assertIn(".gitignore:1:.cache/\t", matched)
+            self.assertRegex(matched, r"^\.gitignore:\d+:\.cache/\t")
         self.assertEqual(git(REPO_ROOT, "ls-files", "--cached", "--", CACHE), b"")
 
 
