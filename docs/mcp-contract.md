@@ -31,7 +31,7 @@ publication. Failed renders preserve an existing output.
 | `diavisuals://style-audit` | Default family audit covering tokens, examples, compatibility, and rendered gallery outputs. |
 | `diavisuals://examples` | Source example inventory grouped by style family. |
 | `diavisuals://project/check` | Check all supported diagram outputs in the startup consumer root and publish its provider receipt. |
-| `diavisuals://factory-manifest` | Discovery manifest for ContExt-style launchers. |
+| `diavisuals://factory-manifest` | Discovery manifest for gContExt-style launchers. |
 
 ## Tools
 
@@ -79,7 +79,7 @@ bytes is prefixed by its unsigned eight-byte big-endian length. Reads are
 bounded and no-follow; source discovery and receipt publication stay confined
 to the startup workspace.
 
-## ContExt Discovery
+## gContExt Discovery
 
 External launchers can scan sibling Git repositories for `mcp-factory.yml`.
 The checkout manifest runs build, check, tests, and smoke in the factory and

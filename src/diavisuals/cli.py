@@ -370,7 +370,7 @@ def build_parser() -> argparse.ArgumentParser:
     update_parser.add_argument("--dry-run", action="store_true")
     update_parser.set_defaults(func=cmd_update)
 
-    manifest_parser = subcommands.add_parser("factory-manifest", help="Print the ContExt/discovery manifest")
+    manifest_parser = subcommands.add_parser("factory-manifest", help="Print the gContExt/discovery manifest")
     manifest_parser.set_defaults(func=cmd_factory_manifest)
 
     install_check_parser = subcommands.add_parser("install-check", help="Check whether the CLI is installed as an executable tool")

@@ -91,7 +91,7 @@ def run_server(project: pathlib.Path) -> None:
 
     @mcp.resource("diavisuals://factory-manifest")
     def manifest() -> str:
-        """Factory discovery manifest for ContExt-style launchers."""
+        """Factory discovery manifest for gContExt-style launchers."""
         return core.json_dumps(core.factory_manifest())
 
     @mcp.tool()

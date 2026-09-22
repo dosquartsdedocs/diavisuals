@@ -119,7 +119,7 @@ MCP_CONSUMER_WORKSPACE=/path/to/consumer-repo make --no-print-directory mcp-stdi
 ```
 
 The root `mcp-factory.yml` file is the checkout discovery contract for external
-launchers such as ContExt. Its build, check, test, and smoke commands are
+launchers such as gContExt (formerly ContExt). Build, check, test, and smoke are
 factory-scoped; init, stdio serve, and down receive the selected workspace. The
 manifest transport is sufficient to derive client configuration, so launchers
 do not need to execute a separate client-config command. Stdio transports bind
