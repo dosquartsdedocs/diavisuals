@@ -13,7 +13,7 @@ publish only validated artifacts through an atomic host-side replacement. Run
 
 ## MCP Factory Contract
 
-This repository is a reusable, user-scoped MCP factory for diagram style assets and rendering. Keep the MCP manifest aligned with the standard ContExt lifecycle:
+This repository is a reusable, user-scoped MCP factory for diagram style assets and rendering. Keep the MCP manifest aligned with the standard gContExt lifecycle:
 
 - `make mcp-build`: prepare package/runtime dependencies in the factory checkout without starting a persistent service.
 - `make mcp-check`: run a fast deterministic factory check without depending on a consumer workspace.
@@ -22,6 +22,6 @@ This repository is a reusable, user-scoped MCP factory for diagram style assets 
 - `make project-check PROJECT=/path/to/project`: verify supported unaltraweb diagram outputs and publish only the confined provider receipt.
 - `make mcp-down PROJECT=/path/to/project`: force-remove only renderer containers labeled for the selected consumer workspace; preserve images, volumes, other workspaces, and unrelated containers.
 
-The smoke test stays in this repository because only `diavisuals` knows what a meaningful minimal style proof is. ContExt invokes `commands.smoke`, stores the latest result in its smoke status cache, and disables the generated switch only when the last known smoke state is `failed`.
+The smoke test stays in this repository because only `diavisuals` knows what a meaningful minimal style proof is. gContExt invokes `commands.smoke`, stores the latest result in its smoke status cache, and disables the generated switch only when the last known smoke state is `failed`.
 
 Consumers should call this MCP from the workspace where slides, papers, or documentation are being produced; generated artefacts and project-specific decisions belong in the consumer repository.
