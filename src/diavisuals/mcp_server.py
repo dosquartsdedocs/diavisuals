@@ -3,6 +3,7 @@ from __future__ import annotations
 import pathlib
 from typing import Any
 
+from . import artifacts
 from . import registry as core
 
 
@@ -18,6 +19,8 @@ def _resolve_consumer_root(project: pathlib.Path) -> pathlib.Path:
 
 def run_server(project: pathlib.Path) -> None:
     consumer_root = _resolve_consumer_root(project)
+    # Preserve the selected spelling for the stricter v1 no-link ancestor check.
+    artifact_root = project.expanduser().absolute()
     try:
         from mcp.server.fastmcp import FastMCP
         from mcp.types import CallToolResult, TextContent
@@ -188,6 +191,42 @@ def run_server(project: pathlib.Path) -> None:
                 dry_run=dry_run,
             )
         )
+
+    @mcp.tool()
+    def initialize_artifact_export() -> dict[str, Any]:
+        """Opt in to retained diagram bundles and prepare confined ignored recovery staging."""
+        return tool_result(lambda: artifacts.initialize_artifact_export(artifact_root))
+
+    @mcp.tool()
+    def export_diagram_bundle(
+        input_path: str | None = None,
+        diagram_text: str | None = None,
+        bundle_id: str = "",
+        engine: str = "auto",
+        family: str = core.DEFAULT_FAMILY,
+        style: str = "",
+        profile: str = core.DEFAULT_COMPATIBILITY,
+        output_format: str = "svg",
+        original_path: str | None = None,
+        edited_paths: list[str] | None = None,
+        dry_run: bool = False,
+    ) -> dict[str, Any]:
+        """Render one file OR inline source and retain a sealed v1 bundle, optionally with selected original/edited SVGs."""
+        return tool_result(lambda: artifacts.export_diagram_bundle(
+            artifact_root, input_path=input_path, diagram_text=diagram_text, bundle_id=bundle_id,
+            engine=engine, family=family, style=style, profile=profile, output_format=output_format,
+            original_path=original_path, edited_paths=edited_paths, dry_run=dry_run,
+        ))
+
+    @mcp.tool()
+    def check_diagram_bundle(path: str, sha256: str) -> dict[str, Any]:
+        """Verify a diagram bundle's sender hash, complete tree and retained source/resource/SVG references."""
+        return tool_result(lambda: artifacts.check_diagram_bundle(artifact_root, path=path, sha256=sha256))
+
+    @mcp.tool()
+    def recover_diagram_bundle(path: str, sha256: str, bundle_id: str) -> dict[str, Any]:
+        """Publish an exact sealed staging job to a new bundle name after a publication failure."""
+        return tool_result(lambda: artifacts.recover_diagram_bundle(artifact_root, path=path, sha256=sha256, bundle_id=bundle_id))
 
     @mcp.tool()
     def update(dry_run: bool = False) -> dict[str, Any]:

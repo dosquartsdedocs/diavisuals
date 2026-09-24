@@ -237,7 +237,7 @@ class RegistryTest(unittest.TestCase):
 
         plan = submodule_plan("/tmp/project", path="docs/slides/resources/diavisuals")
         self.assertTrue(plan["ok"], plan)
-        self.assertEqual(plan["release"], "v0.3.1")
+        self.assertEqual(plan["release"], registry.DEFAULT_RELEASE)
         self.assertEqual(plan["commands"][0][1:3], ["submodule", "add"])
 
     def test_cli_json(self) -> None:
