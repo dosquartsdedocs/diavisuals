@@ -5,10 +5,12 @@
 - Owner PR: [#10](https://github.com/dosquartsdedocs/diavisuals/pull/10), developed
   on `feat/artifact-handoff-v1` in the selected Diavisuals checkout.
 - Inspected base: `70702b7705f0385b552176d3551b3acc4b3e5af1`.
-- Prepared package/release target: **0.4.0 / v0.4.0**, currently unreleased.
+- Package/release: **0.4.0 / v0.4.0**. The [GitHub release](https://github.com/dosquartsdedocs/diavisuals/releases/tag/v0.4.0)
+  supplies wheel, sdist, the unchanged renderer archive, `release.json` and checksums.
 - Tested producer-source snapshot (identical in checkout, wheel and sdist):
   `sha256:547e898d58fe8f66206c9345b30afc55fd268a17ec0e39e8e262a53f648741f7`.
-  This is the retained source identity, not a published Git/package pin.
+  This retained source identity is bound to the release's immutable Git/package
+  pins by the published `release.json`.
 - Shared contract/schema/verifier/fixtures:
   `9167e3efb5968a64bb9100792163a179c1491860`; central merge
   `fc8745db950b04013c73eb49acf6781a26eb83f8`.
@@ -19,10 +21,11 @@
 - Engine/style/profile inputs unchanged:
   `mermaid-11.16.0-plantuml-1.2026.1`, family `benizar`, image label
   `diavisuals/render:v0.3.0`. No gallery output changes are required.
-- Local real-runtime proof used image ID
+- The retained renderer image ID is
   `sha256:5a6887b372a0e1c386a7b54981d11ae1910215baeb6a12dfd0706b3e85ef0846`.
-  Its inspected `RepoDigests` list was empty: this is **local test evidence**,
-  not a published image pin for adoption.
+  The release distributes its Docker archive with a separate SHA-256; the image
+  ID is preserved without rebuilding. No OCI registry `RepoDigest` is claimed.
+  See [published artifacts and bootstrap](releases.md#published-artifacts).
 
 The owner implementation is intentionally producer-only. Importers, native
 receipt regeneration at final destinations, composite bundle assembly and
@@ -88,19 +91,20 @@ rehashed manifests cannot change the kind/ownership required by retained roles.
    and immutable implementation commit in the central coordinator's tracking.
    Use the merged revision from PR #10; a branch name or local test wheel is
    not a released dependency. Package/runtime publication remains separate.
-2. Obtain the QGIS pilot's reviewed findings before declaring coordinated rollout
-   conformance. The supplied central handoff and available pilot checkout did
-   not contain a completed reviewed pilot report at implementation time.
+2. The QGIS pilot's reviewed findings are now available and were reviewed for this
+   release: [PR #12](https://github.com/dosquartsdedocs/unaltracaptura-qgis/pull/12),
+   merge `f9b6de8a7c318c5683a5819d200f920a4c99ca59`, published `v0.2.0`.
+   See the applicability notes below.
 3. Publish the approved `v0.4.0` Git revision and the affected Diavisuals Python
    distributions using the owner's publication process. Record the full Git
    object ID and wheel/sdist SHA-256 values. Associate a released export's
    retained producer-source snapshot revision with these distributions.
-4. Keep the unchanged engine image **if a published immutable artifact is
-   available**. Record its registry digest and prove that a cold runtime produces
-   bundles whose actual Docker image ID matches the release evidence. The local
-   image ID above, a tag alone, and a sibling development checkout are insufficient
-   adoption pins. If no published engine artifact exists, publish/approve that
-   artifact first; rebuilding engines solely for this host feature is unnecessary.
+4. Install the unchanged engine from the published, checksum-verified Docker
+   archive. Require its actual image ID to match `release.json` and the value
+   above. The published-artifact workflow proves loading and rendering on a fresh
+   runner. A tag alone or a sibling development image is insufficient; use both
+   the archive SHA-256 and image ID. Rebuilding engines for this host feature is
+   unnecessary.
 5. Prepare the dependent owner PRs below against the published immutable package
    revision. Preserve every unrelated dependency and the full transitive
    `mcp_dependencies` closure. Do not remove older direct-render tools/resources
@@ -112,11 +116,35 @@ rehashed manifests cannot change the kind/ownership required by retained roles.
 
 ## Dependent PR specifications
 
-All three owners currently declare Diavisuals `v0.3.1` in their inspected
-checkout. The package version becomes `0.4.0`, the display release `v0.4.0`, and
+The initially inspected owner manifests declared Diavisuals `v0.3.1`.
+The package version becomes `0.4.0`, the display release `v0.4.0`, and
 the install reference must bind the **published full commit** or hashed published
 wheel. Record both the human release and resolved immutable revision; never mark
 an unpublished candidate `released`.
+
+For Diapora, retain the existing dependency lifecycle flags and add the bundle
+tools alongside direct rendering. Use the full hashed wheel reference from
+`release.json` for `uv_spec`, or the published full Git commit in a Git install
+reference. The required tool set is:
+
+```yaml
+required_tools:
+  - render_diagram
+  - render_diagram_text
+  - initialize_artifact_export
+  - export_diagram_bundle
+  - check_diagram_bundle
+  - recover_diagram_bundle
+  - factory_manifest
+  - compatibility_status
+  - release_status
+```
+
+The manifest capability is `contracts.artifact_handoff: v1-opt-in-leaf-diagram`.
+Pin `release: v0.4.0`, `version: 0.4.0`, `extras: [mcp]`, compatibility
+`mermaid-11.16.0-plantuml-1.2026.1` and family `benizar`. Bootstrap the verified
+renderer archive before a cold `build: true` lifecycle so `ensure-renderer`
+reuses the released image instead of producing a new local build.
 
 ### Diapora — `Adopt released Diavisuals v1 bundles`
 
@@ -165,7 +193,21 @@ an unpublished candidate `released`.
 ## Coordinator record still required
 
 Record the merged PR and its immutable revision in the central coordinator.
-The remaining external gates are reviewed QGIS findings, published package/runtime
-artifact evidence and the three dependent owner PRs. This handoff supplies the
-exact API, paths, proposed release, unchanged engine contract, test procedure and pin-update scope without
-claiming that those external publication/integration steps have happened.
+Record the published `release.json`, asset hashes and successful cold verification
+run with the dependent owner PRs. Diapora, Unaltraweb and Unaltrepaper own their
+consumer acceptance and pin updates; this producer release does not assert that
+their integration tests have run.
+
+### Reviewed QGIS pilot findings applied to this producer
+
+The pilot's [reviewed evidence](https://github.com/dosquartsdedocs/unaltracaptura-qgis/blob/f9b6de8a7c318c5683a5819d200f920a4c99ca59/docs/artifact-handoff-evidence.md)
+emphasises actual runtime pins, canonical lock ownership, concurrent author edits,
+frozen cleanup inventories and confined recovery. Diavisuals rejects symlinked
+workspace ancestors outright, uses a no-follow export lock and no-replace
+publication, rechecks input/resource/ignore snapshots, and retains failed jobs.
+It provides no acknowledgement/deletion API, so neither new author files nor
+registration metadata acquire cleanup authority. Native provider receipts retain
+their original owner and paths. Original/edited role ownership and the exact
+selection-to-evidence relationship are independently checked, including under
+recomputed manifest hashes. The published archive and cold release verification
+close the former local-only runtime publication gap while preserving image bytes.
