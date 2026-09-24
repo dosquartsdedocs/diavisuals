@@ -112,11 +112,71 @@ class ArtifactTest(unittest.TestCase):
         files = {item["id"]: item for item in doc["files"]}
         self.assertEqual(files["edited-1"]["variant_of"], "original")
         self.assertEqual(files["edited-1"]["ownership"], "author")
+        self.assertEqual(files["original"]["ownership"], "author")
         self.assertEqual((path.parent / files["original"]["path"]).read_bytes(), SVG)
         self.assertEqual((path.parent / files["edited-1"]["path"]).read_bytes(), EDITED)
         self.assertEqual(receipt.read_bytes(), b'{"opaque":"native receipt"}\n')
         self.assertEqual((self.root / "old.edited.svg").read_bytes(), EDITED)
         self.assertNotIn("native-receipt", [item["role"] for item in doc["files"]])
+        request = json.loads((path.parent / "payload/request.json").read_bytes())
+        evidence = json.loads((path.parent / "payload/render-evidence.json").read_bytes())
+        self.assertEqual(request["selection_origin"], {"original": "old.svg", "edits": ["old.edited.svg"]})
+        self.assertEqual(evidence["selected_original"], request["original"])
+        self.assertEqual(evidence["selected_edits"], request["edits"])
+
+    def test_rehashed_selection_evidence_must_match_the_exact_request(self):
+        (self.root / "old.svg").write_bytes(SVG)
+        (self.root / "first.svg").write_bytes(EDITED)
+        (self.root / "second.svg").write_bytes(EDITED.replace(b"Reviewed", b"Second review"))
+        for selected in (False, True):
+            options = {"original_path": "old.svg", "edited_paths": ["first.svg", "second.svg"]} if selected else {}
+            result = self.export(bundle_id=f"selection-{selected}".lower(), **options)
+            manifest, _ = self.document(result)
+            request = json.loads((manifest.parent / "payload/request.json").read_bytes())
+            mutations = [
+                {"selected_original": "nonexistent.svg"},
+                {"selected_original": request["generated"]},
+                {"selected_edits": ["nonexistent.svg"] * max(1, len(request["edits"]))},
+            ]
+            if selected:
+                mutations.extend([
+                    {"selected_original": None},
+                    {"selected_edits": list(reversed(request["edits"]))},
+                    {"selected_edits": [request["edits"][0]] * 2},
+                ])
+            for index, mutation in enumerate(mutations):
+                with self.subTest(selected=selected, mutation=mutation):
+                    target = self.root / f"selection-tampered-{selected}-{index}"
+                    shutil.copytree(manifest.parent, target)
+                    document = json.loads((target / "bundle.json").read_bytes())
+                    item = next(item for item in document["files"] if item["role"] == "render-evidence")
+                    evidence_path = target / item["path"]
+                    evidence = json.loads(evidence_path.read_bytes())
+                    evidence.update(mutation)
+                    content = json_bytes(evidence)
+                    evidence_path.write_bytes(content)
+                    item.update(sha256=digest(content), bytes=len(content))
+                    sha = self.rewrite(target / "bundle.json", document)
+                    with self.assertRaisesRegex(ValueError, "selection evidence mismatch"):
+                        artifacts.check_diagram_bundle(self.root, path=f"{target.name}/bundle.json", sha256=sha)
+
+    def test_rehashed_manifest_cannot_change_retained_role_ownership_or_kind(self):
+        (self.root / "old.svg").write_bytes(SVG)
+        (self.root / "edited.svg").write_bytes(EDITED)
+        result = self.export(original_path="old.svg", edited_paths=["edited.svg"])
+        manifest, original = self.document(result)
+        representatives = {item["role"]: item["id"] for item in original["files"]}
+        for role, identity in representatives.items():
+            for field in ("ownership", "kind"):
+                with self.subTest(role=role, field=field):
+                    document = json.loads(json.dumps(original))
+                    item = next(item for item in document["files"] if item["id"] == identity)
+                    item[field] = ("producer" if item[field] == "author" else "author") if field == "ownership" else (
+                        "input" if item[field] != "input" else "evidence"
+                    )
+                    sha = self.rewrite(manifest, document)
+                    with self.assertRaisesRegex(ValueError, "role ownership/kind mismatch"):
+                        artifacts.check_diagram_bundle(self.root, path=result["bundle"]["path"], sha256=sha)
 
     def test_collision_including_empty_destination_never_overwrites(self):
         result = self.export()

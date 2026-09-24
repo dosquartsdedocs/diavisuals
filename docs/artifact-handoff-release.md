@@ -2,11 +2,12 @@
 
 ## Scope and identities
 
-- Owner branch: `feat/artifact-handoff-v1` in the selected Diavisuals checkout.
+- Owner PR: [#10](https://github.com/dosquartsdedocs/diavisuals/pull/10), developed
+  on `feat/artifact-handoff-v1` in the selected Diavisuals checkout.
 - Inspected base: `70702b7705f0385b552176d3551b3acc4b3e5af1`.
 - Prepared package/release target: **0.4.0 / v0.4.0**, currently unreleased.
 - Tested producer-source snapshot (identical in checkout, wheel and sdist):
-  `sha256:a76971097d46d5ea2ca4f34d6b65c13b93dc99cce17d20847b062f421c589028`.
+  `sha256:547e898d58fe8f66206c9345b30afc55fd268a17ec0e39e8e262a53f648741f7`.
   This is the retained source identity, not a published Git/package pin.
 - Shared contract/schema/verifier/fixtures:
   `9167e3efb5968a64bb9100792163a179c1491860`; central merge
@@ -63,12 +64,12 @@ source-path substitution, including real MCP and optional real Docker proofs.
 
 | Check | Result |
 | --- | --- |
-| `make lint tests tests-mcp` with both explicit reference environments | Passed: 106 host tests discovered, 100 passed and 6 runtime-gated; real stdio tests passed separately. |
+| `make lint tests tests-mcp` with both explicit reference environments | Passed: 108 host tests discovered, 102 passed and 6 runtime-gated; real stdio tests passed separately. |
 | Pinned central artifact suite, executed inside the owner suite | Passed: 26 test methods with table-driven adversarial cases, from the reviewed Git objects. |
 | `make mcp-build`, `make mcp-check`, `make check` | Passed. |
 | `make mcp-smoke` / `make docker-test` | Passed: real stdio plus 4 Docker/runtime test methods, including both-engine source/format matrices, relocation and retained-resource replay. |
-| Wheel installation, Python 3.10.20, real Docker enabled | Passed: 32 owner handoff tests plus installed init/project-check/factory/MCP checks. |
-| Sdist installation, Python 3.10.20, real Docker enabled | Passed: the same 32 tests and installed lifecycle checks. |
+| Wheel installation, Python 3.10.20, real Docker enabled | Passed: 34 owner handoff tests plus installed init/project-check/factory/MCP checks. |
+| Sdist installation, Python 3.10.20, real Docker enabled | Passed: the same 34 tests and installed lifecycle checks. |
 | Existing optional real PlantUML workspace-include isolation test | Passed. |
 | `git diff --check` | Passed. |
 
@@ -77,12 +78,16 @@ explicit smoke targets and the separate existing isolation test. Both installed
 environments emitted a non-failing Pydantic settings forward-reference warning
 for MCP's `lifespan` annotation; protocol and render checks still passed.
 
+The recorded run includes regression coverage for both PR review findings:
+rehashed evidence cannot change the selected original or ordered edits, and
+rehashed manifests cannot change the kind/ownership required by retained roles.
+
 ## Publication handoff
 
 1. Review the owner diff and its tests. Record the approved owner issue/PR URL
    and immutable implementation commit in the central coordinator's tracking.
-   This editing session prepares files; an uncommitted branch name is not a
-   release pin. No issue/PR/tag/push/package/image publication is implied.
+   Use the merged revision from PR #10; a branch name or local test wheel is
+   not a released dependency. Package/runtime publication remains separate.
 2. Obtain the QGIS pilot's reviewed findings before declaring coordinated rollout
    conformance. The supplied central handoff and available pilot checkout did
    not contain a completed reviewed pilot report at implementation time.
@@ -159,8 +164,8 @@ an unpublished candidate `released`.
 
 ## Coordinator record still required
 
-The remaining external gates are the approved implementation commit/PR,
-reviewed QGIS findings, published package/runtime artifact evidence and the
-three dependent owner PRs. This handoff supplies the exact API, paths, proposed
-release, unchanged engine contract, test procedure and pin-update scope without
+Record the merged PR and its immutable revision in the central coordinator.
+The remaining external gates are reviewed QGIS findings, published package/runtime
+artifact evidence and the three dependent owner PRs. This handoff supplies the
+exact API, paths, proposed release, unchanged engine contract, test procedure and pin-update scope without
 claiming that those external publication/integration steps have happened.

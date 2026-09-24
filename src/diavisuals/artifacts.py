@@ -41,6 +41,17 @@ ID_RE = re.compile(r"[a-z][a-z0-9._-]{0,79}\Z")
 HASH_RE = re.compile(r"[0-9a-f]{64}\Z")
 REVISION_RE = re.compile(r"(?:git:(?:[0-9a-f]{40}|[0-9a-f]{64})|sha256:[0-9a-f]{64})\Z")
 MAX_PRODUCT_BYTES = 256 * 1024 * 1024
+ROLE_SEMANTICS = {
+    "request": ("input", "producer"),
+    "diagram-source": ("input", "author"),
+    "render-resource": ("input", "producer"),
+    "producer-source": ("evidence", "producer"),
+    "producer-identity": ("evidence", "producer"),
+    "render-evidence": ("evidence", "producer"),
+    "diagram-generated": ("output", "producer"),
+    "diagram-original": ("output", "author"),
+    "diagram-edited": ("output", "author"),
+}
 
 
 def _identifier(value: str) -> str:
@@ -280,6 +291,9 @@ def _check_bundle(workspace: Workspace, path: str, sha256: str) -> dict:
         require(identity not in files, "duplicate file id")
         _identifier(item["role"])
         require(item["kind"] in {"input", "output", "evidence"} and item["ownership"] in {"author", "producer"}, "invalid file semantics")
+        if item["role"] in ROLE_SEMANTICS:
+            require((item["kind"], item["ownership"]) == ROLE_SEMANTICS[item["role"]],
+                    f"role ownership/kind mismatch: {item['role']}")
         require(safe_path(item["path"]).startswith("payload/") and HASH_RE.fullmatch(item["sha256"]), "invalid payload/hash")
         require(type(item["bytes"]) is int and 0 <= item["bytes"] <= MAX_FILE, "invalid file size")
         product_bytes += item["bytes"]
@@ -305,7 +319,7 @@ def _check_bundle(workspace: Workspace, path: str, sha256: str) -> dict:
 
 def _check_domain(request: dict, files: dict, data: dict[str, bytes], actor: dict) -> None:
     _keys(request, {"profile_version", "engine", "family", "style", "profile", "output_format", "source", "source_origin",
-                    "resources", "generated", "original", "edits", "renderer", "producer_identity"})
+                    "resources", "generated", "original", "edits", "selection_origin", "renderer", "producer_identity"})
     require(type(request["profile_version"]) is int and request["profile_version"] == 1, "unsupported diagram request profile")
     engine = request["engine"]
     require(engine in {"mermaid", "plantuml"}, "unsupported diagram engine")
@@ -369,9 +383,14 @@ def _check_domain(request: dict, files: dict, data: dict[str, bytes], actor: dic
         outputs.add(request["original"])
     require(type(request["edits"]) is list and len(request["edits"]) <= 32, "invalid edited variants")
     require(len(request["edits"]) == len(set(request["edits"])) and bool(request["edits"]) == bool(request["original"]), "invalid original/edited selection")
-    require(type(evidence["selected_edits"]) is list and len(evidence["selected_edits"]) == len(request["edits"]), "edited selection evidence mismatch")
-    for path in ([evidence["selected_original"], *evidence["selected_edits"]] if request["original"] else []):
-        safe_path(path)
+    require(evidence["selected_original"] == request["original"] and evidence["selected_edits"] == request["edits"],
+            "original/edited selection evidence mismatch")
+    selection_origin = request["selection_origin"]
+    _keys(selection_origin, {"original", "edits"})
+    require(type(selection_origin["edits"]) is list and len(selection_origin["edits"]) == len(request["edits"])
+            and (selection_origin["original"] is None) == (request["original"] is None), "invalid selection origin")
+    if request["original"] is not None:
+        unique_paths([selection_origin["original"], *selection_origin["edits"]])
     for path in request["edits"]:
         require(request["original"] is not None, "edited variant requires its selected original")
         _svg_check(retained(path, "output", "diagram-edited"))
@@ -522,6 +541,7 @@ def export_diagram_bundle(
                         "output_format": output_format, "source": source,
                         "source_origin": {"kind": "file", "path": input_path} if input_path is not None else {"kind": "inline"},
                         "resources": resources, "generated": generated, "original": original, "edits": edited,
+                        "selection_origin": {"original": original_path, "edits": edits},
                         "renderer": image_id, "producer_identity": "payload/producer/identity.json",
                     }
                     retain("request", "payload/request.json", json_bytes(request), "input", "request")
@@ -547,7 +567,7 @@ def export_diagram_bundle(
                     retain("render-evidence", "payload/render-evidence.json", json_bytes({
                         "renderer": image_id, "returncode": 0, "runtime_teardown_verified": True,
                         "network": "none", "consumer_mount": False, "source_sha256": digest(source_data),
-                        "selected_original": original_path, "selected_edits": edits,
+                        "selected_original": original, "selected_edits": edited,
                     }), "evidence", "render-evidence")
                 workspace.recheck()
                 require(_producer_snapshot()[0]["revision"] == actor["revision"], "producer package changed during export")

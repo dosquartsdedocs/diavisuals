@@ -102,11 +102,13 @@ a restart before export, so retained code cannot silently describe a different
 version from the loaded producer.
 
 The request stores effective options and **bundle-relative** source/resource/
-output references. Original consumer filenames are informational origin metadata,
-not dependencies needed after relocation. Render evidence records the input
-hash, image ID, successful execution and verified teardown, network/mount
-boundary and explicit original/edit selection. Checkers treat scripts and
-requests as data; they never execute retained code.
+output references. `source_origin` and `selection_origin` preserve original
+consumer filenames as informational metadata, not dependencies needed after
+relocation. Render evidence records the input hash, image ID, successful
+execution and verified teardown, network/mount boundary and explicit original/edit
+selection. Its selected original and ordered edits must exactly equal the
+request's retained `original` and `edits` paths, including an empty selection.
+Checkers treat scripts and requests as data; they never execute retained code.
 
 ### Reviewed edits and originals
 
@@ -126,6 +128,11 @@ old original with a new render whose SVG IDs or layout might differ. Selection
 must be explicit, with both original and edits; there is no inferred filename
 ownership or automatic replacement. SVG edits/originals may accompany any of
 the three generated output formats.
+
+The checker enforces role, kind and ownership together: diagram sources and
+selected originals/edits are author-owned; the effective request, render
+resources, producer provenance/evidence and generated output are producer-owned.
+Recomputing a manifest hash cannot make conflicting role/ownership claims valid.
 
 ## Supported dependency profile
 
