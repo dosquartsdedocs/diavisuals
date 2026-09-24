@@ -1,0 +1,89 @@
+name: Verify published release
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Published release tag
+        required: true
+        default: v0.4.0
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: verify-release-${{ github.event.release.tag_name || inputs.tag }}
+  cancel-in-progress: false
+
+jobs:
+  published-artifacts:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      RELEASE_TAG: ${{ github.event.release.tag_name || inputs.tag }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.release.tag_name || inputs.tag }}
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@v7
+        with:
+          version: 0.12.5
+          python-version: '3.12'
+      - name: Download and verify public assets
+        run: |
+          set -euo pipefail
+          [[ "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          gh release download "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --dir .tmp/release-assets
+          python3 - <<'PY'
+          import hashlib, json, os, pathlib, subprocess
+          root = pathlib.Path('.tmp/release-assets')
+          release = json.loads((root / 'release.json').read_text())
+          assert release['tag'] == os.environ['RELEASE_TAG']
+          assert release['version'] == os.environ['RELEASE_TAG'][1:]
+          assert release['commit'] == subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip()
+          for item in release['artifacts']:
+              name = item['name']
+              assert pathlib.PurePosixPath(name).name == name and name not in {'.', '..'}
+              path = root / name
+              assert path.is_file() and not path.is_symlink() and path.stat().st_size == item['bytes']
+              sha = hashlib.sha256()
+              with path.open('rb') as stream:
+                  for chunk in iter(lambda: stream.read(1024 * 1024), b''):
+                      sha.update(chunk)
+              assert sha.hexdigest() == item['sha256'], name
+          PY
+      - name: Verify complete checksum inventory
+        working-directory: .tmp/release-assets
+        run: sha256sum --check SHA256SUMS
+      - name: Load the released renderer and install the released wheel
+        run: |
+          set -euo pipefail
+          docker image load --input .tmp/release-assets/diavisuals-render-v0.3.0-linux-amd64.tar.gz
+          uv venv .tmp/release-venv
+          uv pip install --python .tmp/release-venv/bin/python ".tmp/release-assets/diavisuals-${RELEASE_TAG#v}-py3-none-any.whl[mcp]"
+          .tmp/release-venv/bin/python - <<'PY'
+          import json, pathlib, subprocess
+          from diavisuals import __version__, artifacts, registry
+          release = json.loads(pathlib.Path('.tmp/release-assets/release.json').read_text())
+          assert registry.source_checkout() is None
+          assert __version__ == release['version']
+          assert artifacts._producer_snapshot()[0]['revision'] == release['producer_source_revision']
+          runtime = release['runtime']
+          actual = subprocess.check_output(['docker', 'image', 'inspect', '--format', '{{.Id}}', runtime['image']], text=True).strip()
+          assert actual == runtime['image_id']
+          assert registry.factory_manifest()['contracts']['artifact_handoff'] == release['artifact_handoff']
+          assert set(release['required_tools']) <= set(registry.MCP_TOOL_NAMES)
+          PY
+          .tmp/release-venv/bin/diavisuals factory-check
+          .tmp/release-venv/bin/diavisuals mcp-smoke
+      - name: Exercise the installed producer against the published runtime
+        env:
+          DIAVISUALS_INSTALLED: '1'
+          DIAVISUALS_DOCKER_SMOKE: '1'
+          DIAVISUALS_MCP_SMOKE: '1'
+        run: .tmp/release-venv/bin/python -m unittest tests.test_artifacts tests.test_artifacts_runtime

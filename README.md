@@ -1,6 +1,6 @@
 # diavisuals
 
-![release target](https://img.shields.io/badge/release_target-v0.4.0-2a5db0) ![Mermaid CLI](https://img.shields.io/badge/Mermaid_CLI-11.16.0-ff3670) ![PlantUML](https://img.shields.io/badge/PlantUML-1.2026.1-2a5db0) ![family](https://img.shields.io/badge/family-benizar-2a5db0)
+![release](https://img.shields.io/badge/release-v0.4.0-2a5db0) ![Mermaid CLI](https://img.shields.io/badge/Mermaid_CLI-11.16.0-ff3670) ![PlantUML](https://img.shields.io/badge/PlantUML-1.2026.1-2a5db0) ![family](https://img.shields.io/badge/family-benizar-2a5db0)
 
 `diavisuals` centralizes shared Mermaid and PlantUML visual styles and the
 Docker renderer used by dosquartsdedocs projects. The goal is to stop copying
@@ -40,10 +40,13 @@ That split matters because a quadrant chart, a sequence diagram, and a treemap n
 Install the package and MCP dependencies with `uv`:
 
 ```bash
-uv tool install 'diavisuals[mcp]'
+uv tool install 'diavisuals[mcp] @ https://github.com/dosquartsdedocs/diavisuals/releases/download/v0.4.0/diavisuals-0.4.0-py3-none-any.whl'
 ```
 
-Build the shared renderer image once:
+For released-producer acceptance, first load the checksum-verified renderer
+archive from the same GitHub release. See [release installation and pins](docs/releases.md#published-artifacts).
+The image ID is unchanged from the tested v0.3.0 renderer. A source checkout can
+also prepare the shared renderer with:
 
 ```bash
 make mcp-build
@@ -146,7 +149,7 @@ cache and keep it out of the Git index. `init` creates the cache directory;
 it does not edit Git configuration. `workspace-check` inspects these policies
 without running provider commands, and `down` preserves consumer files.
 
-### Opt-in artifact bundles (0.4.0 release target)
+### Opt-in artifact bundles (0.4.0)
 
 Export one complete diagram product, retaining exact source bytes, the effective
 request, styles/tools/profile, immutable producer/runtime identities and generated

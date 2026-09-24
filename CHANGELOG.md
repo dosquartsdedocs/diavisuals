@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.4.0 - Unreleased
+## 0.4.0 - 2026-09-24
 
 - Add opt-in MCP artifact handoff v1 export, verification and recovery for one Mermaid or PlantUML diagram, from file or exact inline UTF-8 bytes.
 - Retain the effective request, complete staged style/tool/profile resources, content-addressed producer sources, actual renderer image ID and SVG/PNG/PDF output.
@@ -8,6 +8,7 @@
 - Publish bounded host-side bundles with no-replace atomic directory publication, no-follow reads, confinement, concurrency checks and durable recovery jobs.
 - Initialize narrow effective staging ignore coverage only on explicit feature activation; preserve consumer customizations and native unaltraweb receipts.
 - Keep the existing renderer image/profile and direct-output APIs; add checkout, wheel/sdist, MCP and real Docker handoff proofs.
+- Publish wheel, sdist and the unchanged renderer as checksum-pinned GitHub release assets, with a machine-readable release manifest and cold published-artifact verification.
 
 ## 0.3.1 - 2026-08-28
 

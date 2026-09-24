@@ -1,6 +1,6 @@
 # Opt-in diagram artifact handoff v1
 
-Available in the **0.4.0 release target**, through the checkout CLI, installed
+Available in **0.4.0**, through the checkout CLI, installed
 wheel/sdist and startup-bound MCP. This is a leaf producer for **one** Mermaid or
 PlantUML product. The reviewed shared contract is `my-scripts-factory` revision
 `9167e3efb5968a64bb9100792163a179c1491860`, integrated through merge
