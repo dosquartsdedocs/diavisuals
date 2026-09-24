@@ -95,6 +95,10 @@ MCP_TOOL_NAMES = (
     "project_check",
     "render_diagram",
     "render_diagram_text",
+    "initialize_artifact_export",
+    "export_diagram_bundle",
+    "check_diagram_bundle",
+    "recover_diagram_bundle",
     "update",
     "factory_manifest",
 )
@@ -810,12 +814,19 @@ def _docker_mount_spec(*fields: str) -> str:
     return encoded.getvalue()
 
 
-def _copy_staged_asset(source: pathlib.Path, destination: pathlib.Path, asset_root: pathlib.Path, *, executable: bool = False) -> None:
+def _copy_staged_asset(source: pathlib.Path, destination: pathlib.Path, asset_root: pathlib.Path, *, executable: bool = False, strict: bool = False) -> None:
     resolved = source.resolve(strict=True)
     if not path_within(resolved, asset_root) or not resolved.is_file():
         raise ValueError(f"renderer asset is outside the package root: {source}")
     destination.parent.mkdir(parents=True, exist_ok=True)
-    shutil.copyfile(resolved, destination)
+    if strict:
+        from .handoff_fs import Workspace
+
+        with Workspace(asset_root) as assets:
+            destination.write_bytes(assets.read(source.relative_to(asset_root).as_posix(), package_asset=True))
+            assets.recheck()
+    else:
+        shutil.copyfile(resolved, destination)
     destination.chmod(0o555 if executable else 0o444)
 
 
@@ -828,6 +839,7 @@ def stage_renderer_bundle(
     engine: str,
     style_name: str,
     output_format: str,
+    strict_assets: bool = False,
 ) -> dict[str, pathlib.Path]:
     asset_root = repo_dir().resolve()
     bundle = stage_root / "bundle"
@@ -876,6 +888,7 @@ def stage_renderer_bundle(
             bundle / "tools" / tool_name,
             asset_root,
             executable=tool_name.endswith(".sh"),
+            strict=strict_assets,
         )
 
     if engine == "mermaid":
@@ -884,6 +897,7 @@ def stage_renderer_bundle(
             style_root / f"{style_name}.json",
             bundle / "styles" / "mermaid" / f"{style_name}.json",
             asset_root,
+            strict=strict_assets,
         )
         override_root = style_root / style_name
         for override in sorted(override_root.glob("*.mmd")):
@@ -891,6 +905,7 @@ def stage_renderer_bundle(
                 override,
                 bundle / "styles" / "mermaid" / style_name / override.name,
                 asset_root,
+                strict=strict_assets,
             )
     else:
         style_root = asset_root / "styles" / "plantuml"
@@ -898,6 +913,7 @@ def stage_renderer_bundle(
             style_root / f"{style_name}.puml",
             bundle / "styles" / "plantuml" / f"{style_name}.puml",
             asset_root,
+            strict=strict_assets,
         )
         override_root = style_root / style_name
         for override in sorted(override_root.glob("*.puml")):
@@ -905,6 +921,7 @@ def stage_renderer_bundle(
                 override,
                 bundle / "styles" / "plantuml" / style_name / override.name,
                 asset_root,
+                strict=strict_assets,
             )
 
     for directory in sorted((path for path in bundle.rglob("*") if path.is_dir()), reverse=True):
@@ -2137,6 +2154,7 @@ def factory_manifest() -> dict[str, Any]:
             "project_check": [*factory_launcher, "project-check", "${workspaceFolder}"],
             "render": [*factory_launcher, "render", "${workspaceFolder}"],
             "render_text": [*factory_launcher, "render-text", "${workspaceFolder}"],
+            "export_bundle": [*factory_launcher, "export-bundle", "${workspaceFolder}"],
         }
     else:
         factory_cli = ["diavisuals"]
@@ -2161,6 +2179,7 @@ def factory_manifest() -> dict[str, Any]:
             "project_check": [*project_cli, "project-check"],
             "render": [*project_cli, "render-diagram"],
             "render_text": [*project_cli, "render-diagram-text"],
+            "export_bundle": [*project_cli, "export-diagram-bundle"],
         }
     return {
         "ok": True,
@@ -2182,6 +2201,7 @@ def factory_manifest() -> dict[str, Any]:
             "generated_paths": [
                 ".cache/diavisuals",
                 ".unaltraweb/receipts/diavisuals.json",
+                ".diavisuals/artifacts",
             ],
             "init_creates": [".cache/diavisuals"],
             "path_policies": [
@@ -2196,6 +2216,13 @@ def factory_manifest() -> dict[str, Any]:
                     "path": PROJECT_RECEIPT_PATH.as_posix(),
                     "type": "file",
                     "role": "diagram-validation-receipt",
+                    "git": "consumer",
+                    "cleanup": "explicit",
+                },
+                {
+                    "path": ".diavisuals/artifacts",
+                    "type": "directory",
+                    "role": "diagram-artifact-bundles-and-recovery",
                     "git": "consumer",
                     "cleanup": "explicit",
                 },
@@ -2232,6 +2259,7 @@ def factory_manifest() -> dict[str, Any]:
             "renderer_staging": "selected-input-and-style-assets-only",
             "project_check_roots": list(UNALTRAWEB_DIAGRAM_ROOTS),
             "receipt": PROJECT_RECEIPT_PATH.as_posix(),
+            "artifact_handoff": "v1-opt-in-leaf-diagram",
         },
         "mcp": {
             "server_name": "diavisuals",

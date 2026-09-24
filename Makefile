@@ -56,6 +56,7 @@ test: tests
 tests-mcp: mcp-env
 	@$(CLI) mcp-smoke >/dev/null
 	@DIAVISUALS_MCP_SMOKE=1 DIAVISUALS_MCP_FACTORY_ROOT="$${PWD}" $(PYTHON) -m unittest tests.test_registry.RegistryTest.test_mcp_stdio_smoke_when_enabled
+	@DIAVISUALS_MCP_SMOKE=1 $(PYTHON) -m unittest tests.test_artifacts_runtime.ArtifactMCPTest
 
 tests-install: mcp-env
 	@rm -rf .tmp/install-wheel .tmp/install-sdist dist
@@ -71,6 +72,7 @@ tests-install: mcp-env
 	test -f "$$consumer/.unaltraweb/receipts/diavisuals.json"; \
 	.tmp/install-wheel/bin/diavisuals factory-check >/dev/null; \
 	.tmp/install-wheel/bin/diavisuals mcp-smoke >/dev/null
+	@DIAVISUALS_INSTALLED=1 DIAVISUALS_MCP_SMOKE=1 .tmp/install-wheel/bin/python -m unittest tests.test_artifacts tests.test_artifacts_runtime
 	@$(UV) venv --python 3.10 .tmp/install-sdist >/dev/null
 	@$(UV) pip install --python .tmp/install-sdist/bin/python dist/*.tar.gz 'mcp==1.29.0' >/dev/null
 	@set -euo pipefail; consumer="$$(mktemp -d)"; trap 'rm -rf "$$consumer"' EXIT; \
@@ -82,6 +84,7 @@ tests-install: mcp-env
 	test -f "$$consumer/.unaltraweb/receipts/diavisuals.json"; \
 	.tmp/install-sdist/bin/diavisuals factory-check >/dev/null; \
 	.tmp/install-sdist/bin/diavisuals mcp-smoke >/dev/null
+	@DIAVISUALS_INSTALLED=1 DIAVISUALS_MCP_SMOKE=1 .tmp/install-sdist/bin/python -m unittest tests.test_artifacts tests.test_artifacts_runtime
 
 docker-build-renderer: mcp-env
 	@$(CLI) build-renderer --profile "$${COMPAT_PROFILE}" >/dev/null
@@ -100,7 +103,7 @@ mcp-check: mcp-env check
 	@$(CLI) lifecycle-check --command "$${PWD}/$(CLI)" >/dev/null
 
 docker-test: docker-ensure-renderer
-	@DIAVISUALS_DOCKER_SMOKE=1 $(PYTHON) -m unittest tests.test_docker_smoke
+	@DIAVISUALS_DOCKER_SMOKE=1 DIAVISUALS_MCP_SMOKE=1 $(PYTHON) -m unittest tests.test_docker_smoke tests.test_artifacts_runtime
 
 mcp-smoke: tests-mcp docker-test
 

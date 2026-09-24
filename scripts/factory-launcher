@@ -5,7 +5,7 @@ FACTORY_ROOT="$(CDPATH= cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd -P)"
 CLI="${FACTORY_ROOT}/.venv/bin/diavisuals"
 
 case "${1:-}" in
-  build|init|check|tests|smoke|down|update|release-status|install-check|factory-check|install-codex-mcp|serve|client-config|manifest|styles|audit|project-check|render|render-text)
+  build|init|check|tests|smoke|down|update|release-status|install-check|factory-check|install-codex-mcp|serve|client-config|manifest|styles|audit|project-check|render|render-text|export-bundle)
     OPERATION="$1"
     PROJECT_ROOT=""
     shift
@@ -18,7 +18,7 @@ case "${1:-}" in
 esac
 
 case "${OPERATION}" in
-  init|down|install-codex-mcp|project-check|render|render-text)
+  init|down|install-codex-mcp|project-check|render|render-text|export-bundle)
     if [[ -z "${PROJECT_ROOT}" ]]; then
       PROJECT_ROOT="${1:?consumer project root is required}"
       shift
@@ -124,6 +124,10 @@ case "${OPERATION}" in
   render-text)
     bootstrap
     exec "${CLI}" --project "${PROJECT_ROOT}" render-diagram-text "$@"
+    ;;
+  export-bundle)
+    bootstrap
+    exec "${CLI}" --project "${PROJECT_ROOT}" export-diagram-bundle "$@"
     ;;
   *)
     printf 'Unknown factory operation: %s\n' "${OPERATION}" >&2

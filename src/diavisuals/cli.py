@@ -11,10 +11,17 @@ import sys
 from typing import Any
 
 from . import __version__
+from .artifacts import (
+    check_diagram_bundle,
+    export_diagram_bundle,
+    initialize_artifact_export,
+    recover_diagram_bundle,
+)
 from .registry import (
     DEFAULT_COMPATIBILITY,
     DEFAULT_FAMILY,
     DEFAULT_RELEASE,
+    MAX_DIAGRAM_SOURCE_BYTES,
     MCP_RESOURCE_URIS,
     MCP_TOOL_NAMES,
     build_renderer_image,
@@ -128,7 +135,7 @@ def cmd_install_check(args: argparse.Namespace) -> int:
 
 
 def cmd_init(args: argparse.Namespace) -> int:
-    payload = initialize_project(args.project)
+    payload = initialize_artifact_export(args.project) if args.artifact_export else initialize_project(args.project)
     print_payload(payload)
     return 0
 
@@ -276,6 +283,36 @@ def cmd_client_config(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_export_bundle(args: argparse.Namespace) -> int:
+    diagram_text = args.text
+    if args.stdin:
+        # Read UTF-8 bytes directly: TextIO newline translation would lose CRLF.
+        raw = sys.stdin.buffer.read(MAX_DIAGRAM_SOURCE_BYTES + 1)
+        if len(raw) > MAX_DIAGRAM_SOURCE_BYTES:
+            raise ValueError("diagram source exceeds byte limit")
+        diagram_text = raw.decode("utf-8")
+    payload = export_diagram_bundle(
+        args.project, input_path=args.input, diagram_text=diagram_text,
+        bundle_id=args.bundle_id, engine=args.engine, family=args.family, style=args.style,
+        profile=args.profile, output_format=args.output_format, original_path=args.original,
+        edited_paths=args.edited, dry_run=args.dry_run,
+    )
+    print_payload(payload)
+    return 0 if payload.get("ok") else 1
+
+
+def cmd_check_bundle(args: argparse.Namespace) -> int:
+    payload = check_diagram_bundle(args.project, path=args.path, sha256=args.sha256)
+    print_payload(payload)
+    return 0
+
+
+def cmd_recover_bundle(args: argparse.Namespace) -> int:
+    payload = recover_diagram_bundle(args.project, path=args.path, sha256=args.sha256, bundle_id=args.bundle_id)
+    print_payload(payload)
+    return 0
+
+
 def cmd_mcp(args: argparse.Namespace) -> int:
     if args.mcp_command == "serve":
         from .mcp_server import run_server
@@ -378,6 +415,7 @@ def build_parser() -> argparse.ArgumentParser:
     install_check_parser.set_defaults(func=cmd_install_check)
 
     init_parser = subcommands.add_parser("init", help="Initialize the consumer cache directory")
+    init_parser.add_argument("--artifact-export", action="store_true", help="Opt in to retained diagram bundles and ignored recovery staging")
     init_parser.set_defaults(func=cmd_init)
 
     factory_check_parser = subcommands.add_parser("factory-check", help="Validate packaged assets and factory metadata")
@@ -435,6 +473,32 @@ def build_parser() -> argparse.ArgumentParser:
     render_text_parser.add_argument("--dry-run", action="store_true")
     render_text_parser.set_defaults(func=cmd_render_diagram_text)
 
+    export_parser = subcommands.add_parser("export-diagram-bundle", help="Render and seal one opt-in MCP artifact bundle v1")
+    sources = export_parser.add_mutually_exclusive_group(required=True)
+    sources.add_argument("--input", help="Exact workspace-relative source file")
+    sources.add_argument("--text", help="Inline source retained byte-for-byte as UTF-8")
+    sources.add_argument("--stdin", action="store_true", help="Read inline source from stdin")
+    export_parser.add_argument("--bundle-id", default="", help="New retained bundle name (generated when omitted)")
+    export_parser.add_argument("--engine", choices=["auto", "mermaid", "plantuml"], default="auto")
+    export_parser.add_argument("--family", default=DEFAULT_FAMILY)
+    export_parser.add_argument("--style", default="")
+    export_parser.add_argument("--profile", default=DEFAULT_COMPATIBILITY)
+    export_parser.add_argument("--format", dest="output_format", choices=["svg", "png", "pdf"], default="svg")
+    export_parser.add_argument("--original", help="Selected original SVG for --edited variants")
+    export_parser.add_argument("--edited", action="append", help="Author-edited SVG; repeat for several variants")
+    export_parser.add_argument("--dry-run", action="store_true")
+    export_parser.set_defaults(func=cmd_export_bundle)
+
+    bundle_check_parser = subcommands.add_parser("check-diagram-bundle", help="Verify retained diagram bytes, inventory and domain references")
+    bundle_check_parser.add_argument("path")
+    bundle_check_parser.add_argument("--sha256", required=True)
+    bundle_check_parser.set_defaults(func=cmd_check_bundle)
+    recover_parser = subcommands.add_parser("recover-diagram-bundle", help="Publish a sealed recovery job without replacing any destination")
+    recover_parser.add_argument("path")
+    recover_parser.add_argument("--sha256", required=True)
+    recover_parser.add_argument("--bundle-id", required=True)
+    recover_parser.set_defaults(func=cmd_recover_bundle)
+
     codex_parser = subcommands.add_parser("install-codex-mcp", help="Register this MCP server with Codex")
     codex_parser.add_argument("--server-name", default="diavisuals")
     codex_parser.add_argument("--codex-bin", default="codex")
@@ -462,6 +526,10 @@ def main(argv: list[str] | None = None) -> int:
     stdio_serve = args.command == "mcp" and args.mcp_command == "serve"
     if args.project is None:
         args.project = os.environ.get("MCP_CONSUMER_WORKSPACE", ".") if stdio_serve else "."
+    if args.command in {"export-diagram-bundle", "check-diagram-bundle", "recover-diagram-bundle"} or (
+        args.command == "init" and args.artifact_export
+    ):
+        args.project = str(pathlib.Path(args.project).absolute())
     try:
         return int(args.func(args))
     except Exception as exc:

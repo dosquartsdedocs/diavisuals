@@ -1,6 +1,6 @@
 # diavisuals
 
-![release](https://img.shields.io/badge/release-v0.3.1-2a5db0) ![Mermaid CLI](https://img.shields.io/badge/Mermaid_CLI-11.16.0-ff3670) ![PlantUML](https://img.shields.io/badge/PlantUML-1.2026.1-2a5db0) ![family](https://img.shields.io/badge/family-benizar-2a5db0)
+![release target](https://img.shields.io/badge/release_target-v0.4.0-2a5db0) ![Mermaid CLI](https://img.shields.io/badge/Mermaid_CLI-11.16.0-ff3670) ![PlantUML](https://img.shields.io/badge/PlantUML-1.2026.1-2a5db0) ![family](https://img.shields.io/badge/family-benizar-2a5db0)
 
 `diavisuals` centralizes shared Mermaid and PlantUML visual styles and the
 Docker renderer used by dosquartsdedocs projects. The goal is to stop copying
@@ -135,14 +135,38 @@ modifying project content. It requires a fresh `source.svg`, preferring
 at `.unaltraweb/receipts/diavisuals.json`. A failed check invalidates an older
 receipt.
 
-The schema-version-1 manifests declare two consumer-relative
+The schema-version-1 manifests declare three consumer-relative
 [`workspace_rule.path_policies`](docs/mcp-contract.md#workspace-path-policies):
 `.cache/diavisuals` is an ignored, disposable render cache;
 `.unaltraweb/receipts/diavisuals.json` is a provider receipt whose Git treatment
-is consumer-owned and whose cleanup is explicit. Consumers must ignore the
+is consumer-owned and whose cleanup is explicit; `.diavisuals/artifacts` retains
+opt-in bundles and recovery state with consumer-owned Git treatment and explicit
+cleanup. Consumers must ignore the
 cache and keep it out of the Git index. `init` creates the cache directory;
 it does not edit Git configuration. `workspace-check` inspects these policies
 without running provider commands, and `down` preserves consumer files.
+
+### Opt-in artifact bundles (0.4.0 release target)
+
+Export one complete diagram product, retaining exact source bytes, the effective
+request, styles/tools/profile, immutable producer/runtime identities and generated
+SVG, PNG or PDF:
+
+```bash
+diavisuals --project /absolute/consumer init --artifact-export
+diavisuals --project /absolute/consumer export-diagram-bundle \
+  --input assets/process.mmd --bundle-id process
+diavisuals --project /absolute/consumer export-diagram-bundle \
+  --text $'@startuml\nAlice -> Bob\n@enduml\n' --engine plantuml --dry-run
+```
+
+The MCP equivalents are `initialize_artifact_export`, `export_diagram_bundle`,
+`check_diagram_bundle` and `recover_diagram_bundle`. Export also initializes the
+feature when needed. It returns `bundle.path` (workspace-relative `bundle.json`)
+and `bundle.sha256` (exact manifest bytes). Copy the whole tree to the integrator.
+Use `--original` plus repeatable `--edited` for selected original/edited SVGs.
+See [artifact handoff](docs/artifact-handoff.md) for the bounded dependency
+profile, portability, retention and recovery contract.
 
 ## Rendered Gallery
 

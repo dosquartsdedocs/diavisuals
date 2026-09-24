@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.4.0 - Unreleased
+
+- Add opt-in MCP artifact handoff v1 export, verification and recovery for one Mermaid or PlantUML diagram, from file or exact inline UTF-8 bytes.
+- Retain the effective request, complete staged style/tool/profile resources, content-addressed producer sources, actual renderer image ID and SVG/PNG/PDF output.
+- Preserve explicitly selected author-edited SVGs alongside their selected originals and the fresh render.
+- Publish bounded host-side bundles with no-replace atomic directory publication, no-follow reads, confinement, concurrency checks and durable recovery jobs.
+- Initialize narrow effective staging ignore coverage only on explicit feature activation; preserve consumer customizations and native unaltraweb receipts.
+- Keep the existing renderer image/profile and direct-output APIs; add checkout, wheel/sdist, MCP and real Docker handoff proofs.
+
 ## 0.3.1 - 2026-08-28
 
 - Split ContExt lifecycle commands into factory-scoped build/check/smoke and project-scoped init/serve/down operations.

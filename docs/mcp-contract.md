@@ -46,12 +46,22 @@ publication. Failed renders preserve an existing output.
 | `project_check` | Check every supported unaltraweb diagram source and atomically publish its version-1 provider receipt. |
 | `render_diagram` | Render one `.mmd`, `.mermaid`, `.puml`, `.plantuml`, or `.uml` file to SVG, PNG, or PDF. |
 | `render_diagram_text` | Render Mermaid or PlantUML source text and return the generated artifact path plus inline SVG or base64 image data. |
+| `initialize_artifact_export` | Explicitly enable retained diagram bundles and effective narrow staging ignore coverage. |
+| `export_diagram_bundle` | Render one file or exact inline source and seal a complete v1 bundle; optionally retain selected original/edited SVGs. |
+| `check_diagram_bundle` | Verify a sender-pinned diagram bundle, complete inventory and retained domain references. |
+| `recover_diagram_bundle` | Publish an exact sealed staging job without replacing any existing destination. |
 | `update` | Update the factory checkout with a fast-forward pull. |
 | `factory_manifest` | Return the factory discovery manifest. |
 
 Tool payloads with `ok: false` are returned as MCP tool errors (`isError:
 true`) rather than successful protocol results. The JSON payload is available
 in both text content and `structuredContent` for clients that need diagnostics.
+
+The opt-in artifact tools share the CLI implementation and work in installed
+packages. See [artifact handoff](artifact-handoff.md) for parameters, strict
+dependency/portability limits, immutable provenance, atomic no-replace
+publication, staging recovery and the integrator boundary. They do not change
+the native provider receipt lifecycle below.
 
 ## Project Check And Receipt
 
@@ -107,6 +117,7 @@ policy resolves beneath the explicitly selected consumer workspace.
 | --- | --- | --- | --- | --- |
 | `.cache/diavisuals` | `directory` | `diagram-render-cache` | `ignored` | `disposable` |
 | `.unaltraweb/receipts/diavisuals.json` | `file` | `diagram-validation-receipt` | `consumer` | `explicit` |
+| `.diavisuals/artifacts` | `directory` | `diagram-artifact-bundles-and-recovery` | `consumer` | `explicit` |
 
 These paths were selected from their writers and lifecycle, independently of
 the descriptive `generated_paths` list:
@@ -123,6 +134,12 @@ the descriptive `generated_paths` list:
   claim the shared `.unaltraweb` or `receipts` directories. There is no
   guaranteed Git ignore rule for this receipt, so `consumer` reports its
   actual Git state without requiring ignored, tracked, or untracked status.
+- Only `initialize_artifact_export` / `init --artifact-export` and explicit
+  export enable `.diavisuals/artifacts`. Complete bundles are retained here;
+  `.staging` contains the coordination lock and durable recovery jobs. Enabling
+  prepares narrow effective `.staging` ignore coverage without overwriting
+  customizations. The enclosing policy deliberately uses `consumer`, so absent
+  opt-in paths do not add an ignored-path requirement for existing consumers.
 
 ### Git Expectations
 
@@ -136,7 +153,7 @@ and no tracked files beneath it. For example, add this to the consumer's
 
 An existing broader `.cache/` rule also covers it, as it does in this factory
 checkout. The factory's `.gitignore` is not inherited by other repositories.
-`init` does not write `.gitignore`, change the index, or enforce the policies.
+Plain `init` does not write `.gitignore`, change the index, or enforce the policies.
 `workspace-check` reports a missing ignore rule even before the cache exists,
 and reports any forcibly tracked cache content; remediation is a separate
 consumer decision.
@@ -153,7 +170,9 @@ untracked content in a declared directory.
 `cleanup` is descriptive metadata, never authorization to delete anything.
 Neither `disposable` nor `explicit` adds cleanup behavior to `workspace-check`
 or `down`. `down` removes only the selected workspace's labelled renderer
-containers and preserves its cache, receipt, sources, and outputs.
+containers and preserves its cache, receipt, sources, outputs, bundles and
+recovery jobs. Bundle cleanup is explicit after verified integration and runtime
+teardown; there is no metadata-driven deletion or automatic recovery cleanup.
 
 Factory build/test paths (`.venv`, `.tmp`, `dist`), local example caches
 (`.cache/mermaid`, `.cache/plantuml`, `.cache/puppeteer.json`), and versioned

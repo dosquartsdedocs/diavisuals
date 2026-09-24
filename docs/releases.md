@@ -6,16 +6,23 @@
 
 | Release tag | Compatibility profile | Mermaid CLI | PlantUML | Families | Gallery |
 | --- | --- | --- | --- | --- | --- |
-| `v0.3.1` | `mermaid-11.16.0-plantuml-1.2026.1` | 11.16.0 | 1.2026.1 | `benizar` | `docs/gallery/benizar/mermaid-11.16.0-plantuml-1.2026.1/manifest.csv` |
+| `v0.4.0` (unreleased target) | `mermaid-11.16.0-plantuml-1.2026.1` | 11.16.0 | 1.2026.1 | `benizar` | `docs/gallery/benizar/mermaid-11.16.0-plantuml-1.2026.1/manifest.csv` |
 
 Badges for this release:
 
 ```markdown
-![release](https://img.shields.io/badge/release-v0.3.1-2a5db0)
+![release](https://img.shields.io/badge/release-v0.4.0-2a5db0)
 ![Mermaid CLI](https://img.shields.io/badge/Mermaid_CLI-11.16.0-ff3670)
 ![PlantUML](https://img.shields.io/badge/PlantUML-1.2026.1-2a5db0)
 ![family](https://img.shields.io/badge/family-benizar-2a5db0)
 ```
+
+The 0.4.0 target adds the opt-in artifact producer on the host. Engine versions,
+styles and renderer image build inputs are unchanged. See the
+[owner release/pin handoff](artifact-handoff-release.md) before upgrading a real
+consumer. A local image ID identifies a tested runtime; it is not evidence of a
+published registry artifact. Publication and dependent owner PRs are separate
+operations.
 
 ## Legacy Compatibility Records
 

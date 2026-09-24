@@ -25,6 +25,7 @@ RECEIPT = ".unaltraweb/receipts/diavisuals.json"
 POLICIES = [
     {"path": CACHE, "type": "directory", "role": "diagram-render-cache", "git": "ignored", "cleanup": "disposable"},
     {"path": RECEIPT, "type": "file", "role": "diagram-validation-receipt", "git": "consumer", "cleanup": "explicit"},
+    {"path": ".diavisuals/artifacts", "type": "directory", "role": "diagram-artifact-bundles-and-recovery", "git": "consumer", "cleanup": "explicit"},
 ]
 MANAGER = os.environ.get("DIAVISUALS_FACTORY_MANAGER", "")
 
@@ -250,7 +251,7 @@ class WorkspaceManagerTest(GitConsumerTest):
     def test_cold_consumer_is_not_initialized(self) -> None:
         payload = self.check_workspace()
         self.assertTrue(all(not observation["exists"] for observation in payload["resolved_paths"]))
-        self.assertEqual(payload["summary"]["consumer_policy_count"], 1)
+        self.assertEqual(payload["summary"]["consumer_policy_count"], 2)
 
     def test_populated_consumer_accepts_each_receipt_git_choice(self) -> None:
         self.populate()
