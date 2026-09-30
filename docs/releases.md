@@ -58,6 +58,10 @@ its archive SHA-256 is recorded separately in `release.json`. No registry
 `RepoDigest` is claimed. Loading the archive supplies the existing profile alias
 `diavisuals/render:v0.3.0`; rendering executes its immutable image ID.
 
+Its dependencies include one [owner-approved, exact-image audit exception](renderer-audit-exception-2026-09-30.md)
+for the low-severity DOMPurify advisory GHSA-p98j-92pf-mc4p. The dependency is
+not claimed patched; the release receipt preserves that scoped decision.
+
 Download into a new dedicated directory and verify before installation:
 
 ```bash

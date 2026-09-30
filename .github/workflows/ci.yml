@@ -64,7 +64,6 @@ jobs:
           python-version: "3.12"
           enable-cache: true
       - run: uv sync --locked --extra dev --extra mcp
-      - run: npm audit --omit=dev --prefix docker
       - run: docker info
       - name: Reuse the verified published renderer
         env:
@@ -78,6 +77,14 @@ jobs:
           docker image load --input .tmp/published-renderer/diavisuals-render-v0.3.0-linux-amd64.tar.gz
           test "$(docker image inspect diavisuals/render:v0.3.0 --format '{{.Id}}')" = \
             sha256:5a6887b372a0e1c386a7b54981d11ae1910215baeb6a12dfd0706b3e85ef0846
+      - name: Audit renderer dependencies with the exact approved exception
+        run: |
+          set -euo pipefail
+          audit_exit=0
+          npm audit --omit=dev --json --prefix docker > .tmp/npm-audit.json || audit_exit=$?
+          .venv/bin/python tools/check-renderer-audit.py .tmp/npm-audit.json \
+            --audit-exit-code "$audit_exit" \
+            --image-id "$(docker image inspect diavisuals/render:v0.3.0 --format '{{.Id}}')"
       - run: make docker-test
       - run: DIAVISUALS_MCP_SMOKE=1 .venv/bin/python -m unittest tests.test_registry.RegistryTest.test_plantuml_renderer_blocks_workspace_includes_when_enabled
       - run: make render-gallery
