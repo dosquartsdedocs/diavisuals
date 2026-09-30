@@ -17,8 +17,11 @@ def _resolve_consumer_root(project: pathlib.Path) -> pathlib.Path:
     return root
 
 
-def run_server(project: pathlib.Path) -> None:
+def run_server(project: pathlib.Path, *, runtime: core.RuntimeSelection | None = None) -> None:
     consumer_root = _resolve_consumer_root(project)
+    # Bind the selection once, just like the consumer root; tools cannot silently
+    # fall back to a changed process environment or the profile's shared alias.
+    runtime = runtime if runtime is not None else core.runtime_selection()
     # Preserve the selected spelling for the stricter v1 no-link ancestor check.
     artifact_root = project.expanduser().absolute()
     try:
@@ -90,7 +93,7 @@ def run_server(project: pathlib.Path) -> None:
     @mcp.resource("diavisuals://project/check")
     def project_check_resource() -> str:
         """Project-wide diagram output and unaltraweb receipt check."""
-        return core.json_dumps(core.project_check(consumer_root))
+        return core.json_dumps(core.project_check(consumer_root, runtime=runtime))
 
     @mcp.resource("diavisuals://factory-manifest")
     def manifest() -> str:
@@ -118,6 +121,11 @@ def run_server(project: pathlib.Path) -> None:
         return tool_result(lambda: core.compatibility_status(profile))
 
     @mcp.tool()
+    def renderer_status(profile: str = core.DEFAULT_COMPATIBILITY) -> dict[str, Any]:
+        """Inspect this server's selected local renderer identity without preparing or pulling it."""
+        return tool_result(lambda: core.renderer_status(profile, runtime=runtime))
+
+    @mcp.tool()
     def release_status(release: str = core.DEFAULT_RELEASE) -> dict[str, Any]:
         """Inspect Git release tag status."""
         return tool_result(lambda: core.release_status(release))
@@ -136,7 +144,7 @@ def run_server(project: pathlib.Path) -> None:
     @mcp.tool()
     def project_check() -> dict[str, Any]:
         """Check all supported project diagram outputs and publish the provider receipt."""
-        return tool_result(lambda: core.project_check(consumer_root))
+        return tool_result(lambda: core.project_check(consumer_root, runtime=runtime))
 
     @mcp.tool()
     def render_diagram(
@@ -161,6 +169,7 @@ def run_server(project: pathlib.Path) -> None:
                 profile=profile,
                 output_format=output_format,
                 dry_run=dry_run,
+                runtime=runtime,
             )
         )
 
@@ -189,6 +198,7 @@ def run_server(project: pathlib.Path) -> None:
                 output_format=output_format,
                 include_data=include_data,
                 dry_run=dry_run,
+                runtime=runtime,
             )
         )
 
@@ -216,6 +226,7 @@ def run_server(project: pathlib.Path) -> None:
             artifact_root, input_path=input_path, diagram_text=diagram_text, bundle_id=bundle_id,
             engine=engine, family=family, style=style, profile=profile, output_format=output_format,
             original_path=original_path, edited_paths=edited_paths, dry_run=dry_run,
+            runtime=runtime,
         ))
 
     @mcp.tool()

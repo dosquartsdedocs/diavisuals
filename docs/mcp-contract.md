@@ -21,6 +21,11 @@ selected source and style files outside that workspace. Containers receive no
 consumer mount and no network, and artifacts are validated before atomic
 publication. Failed renders preserve an existing output.
 
+The 0.5.0 control plane also captures a native immutable runtime selection at
+startup. See [runtime selection](runtime-selection.md) for global CLI options,
+environment variables, expected identities, inspect-only explicit preparation
+and cache/freshness behavior. Published 0.4.0 remains the prior native baseline.
+
 ## Resources
 
 | Resource | Description |
@@ -41,6 +46,7 @@ publication. Failed renders preserve an existing output.
 | `style_audit` | Validate tokens, examples, compatibility, and rendered gallery outputs for one family. |
 | `check_styles` | Validate a style family and compatibility profile. |
 | `compatibility_status` | Inspect compatibility profiles. |
+| `renderer_status` | Read-only inspection of the startup runtime selection and local image identity (since 0.5.0). |
 | `release_status` | Inspect Git release tag status. |
 | `submodule_plan` | Return optional commands for pinning `diavisuals` as a submodule. |
 | `project_check` | Check every supported unaltraweb diagram source and atomically publish its version-1 provider receipt. |
@@ -74,6 +80,13 @@ modify sources or artifacts; its only successful write is an atomic,
 descriptor-relative replacement of
 `.unaltraweb/receipts/diavisuals.json`. Failed checks safely remove an older
 receipt when its confined parent is accessible.
+
+Explicit runtime selection additionally requires a hash-bound native provenance
+record for each generated SVG. Managed outputs must match the effective image,
+resource/profile identity and producer version. Author-edited SVGs retain
+preference while their generated originals supply runtime provenance. Default
+mode continues to accept legacy unmanaged outputs using the existing checks.
+See [cache and freshness](runtime-selection.md#cache-and-freshness).
 
 The receipt has exactly `schema_version`, `provider`, `provider_version`,
 `release`, `request_sha256`, `ok`, `inputs`, and `artifacts`. The provider is
@@ -128,6 +141,9 @@ the descriptive `generated_paths` list:
   is a logical name: the actual source bytes are staged privately, not saved
   in the consumer cache. Cached outputs can be regenerated from the supplied
   diagram text and rendering options.
+- Explicit runtime renders, inline cache renders and subsequent renders of
+  managed outputs maintain hash-bound records under `renders/` in the same
+  disposable cache. Removing them requires a fresh render in explicit mode.
 - `project_check` owns exactly `.unaltraweb/receipts/diavisuals.json`. It
   atomically replaces that file on success and invalidates an older receipt
   on failure. `explicit` records this check-driven lifecycle. It does not

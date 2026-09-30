@@ -48,6 +48,7 @@ ROLE_SEMANTICS = {
     "producer-source": ("evidence", "producer"),
     "producer-identity": ("evidence", "producer"),
     "render-evidence": ("evidence", "producer"),
+    "runtime-selection": ("evidence", "producer"),
     "diagram-generated": ("output", "producer"),
     "diagram-original": ("output", "author"),
     "diagram-edited": ("output", "author"),
@@ -363,6 +364,12 @@ def _check_domain(request: dict, files: dict, data: dict[str, bytes], actor: dic
         if "/styles/" in path:
             _source_check(content, engine, resource=True)
     require(request["renderer"] == actor["runtimes"][0]["revision"], "request/runtime mismatch")
+    runtime_path = "payload/runtime-selection.json"
+    if actor["version"] != "0.4.0" or runtime_path in by_path:
+        selection = parse_json(retained(runtime_path, "evidence", "runtime-selection"))
+        profile_data = retained(f"payload/resources/{request['profile']}.env", "input", "render-resource")
+        core.validate_runtime_identity(selection, image_id=request["renderer"], profile_sha256=digest(profile_data),
+                                       profile_ref=core.parse_env_text(profile_data.decode()).get("DIAVISUALS_RENDER_IMAGE", ""))
     identity = retained(request["producer_identity"], "evidence", "producer-identity")
     require(actor["revision"] == f"sha256:{digest(identity)}", "producer snapshot revision mismatch")
     code = parse_json(identity)
@@ -441,7 +448,9 @@ def export_diagram_bundle(
     bundle_id: str = "", engine: str = "auto", family: str = core.DEFAULT_FAMILY, style: str = "",
     profile: str = core.DEFAULT_COMPATIBILITY, output_format: str = "svg", original_path: str | None = None,
     edited_paths: list[str] | None = None, dry_run: bool = False,
+    runtime: core.RuntimeSelection | None = None,
 ) -> dict[str, Any]:
+    runtime = runtime if runtime is not None else core.runtime_selection()
     require((input_path is None) != (diagram_text is None), "provide exactly one of input_path or diagram_text")
     require(engine in {"auto", "mermaid", "plantuml"}, "engine must be auto, mermaid or plantuml")
     bundle_id = _identifier(bundle_id or f"diagram-{uuid.uuid4().hex}")
@@ -473,8 +482,12 @@ def export_diagram_bundle(
                     "selected variants exceed the diagram product limit")
         for content in originals.values():
             _svg_check(content)
+        image = core.ensure_renderer_image(profile, runtime=runtime) if runtime.explicit else None
+        if image is not None and not image.get("ok"):
+            return {"ok": False, "image": image, "error": image.get("error", "explicit runtime resolution failed")}
         if dry_run:
             return {"ok": True, "dry_run": True, "engine": engine, "style": style_name,
+                    "runtime": core.runtime_identity(renderer, runtime, image["image_id"] if image else None),
                     "bundle_path": f"{EXPORT_ROOT}/{bundle_id}/bundle.json", "opt_in": True}
         with _export_lock(workspace):
             _prepare(workspace)
@@ -506,10 +519,12 @@ def export_diagram_bundle(
                     exported = f"payload/outputs/edited-{index + 1}.svg"
                     retain(f"edited-{index + 1}", exported, originals[path], "output", "diagram-edited", "author", variant_of="original")
                     edited.append(exported)
-                image = core.ensure_renderer_image(profile)
+                image = image if image is not None else core.ensure_renderer_image(profile, runtime=runtime)
                 require(image.get("ok") and core.DOCKER_IMAGE_ID_RE.fullmatch(str(image.get("image_id", ""))), "renderer did not resolve to an immutable image ID")
                 image_id = image["image_id"]
                 actor["runtimes"] = [{"name": "diavisuals-renderer", "revision": image_id}]
+                effective_runtime = core.runtime_identity(renderer, runtime, image_id)
+                retain("runtime-selection", "payload/runtime-selection.json", json_bytes(effective_runtime), "evidence", "runtime-selection")
                 with tempfile.TemporaryDirectory(prefix="diavisuals-export-render-") as temporary:
                     private = pathlib.Path(temporary)
                     require(not core.path_within(private, workspace.root), "renderer staging must be outside the consumer workspace")
@@ -530,7 +545,7 @@ def export_diagram_bundle(
                         assets.recheck()
                     with Workspace(core.repo_dir()) as package:
                         content = package.read(f"compat/{profile}.env", MAX_MANIFEST, package_asset=True)
-                        require(core.parse_env(core.repo_dir() / f"compat/{profile}.env") == renderer["values"], "profile changed during export")
+                        require(digest(content) == renderer["profile_sha256"] and core.parse_env_text(content.decode()) == renderer["values"], "profile changed during export")
                         package.recheck()
                     profile_path = f"payload/resources/{profile}.env"
                     retain("profile", profile_path, content, "input", "render-resource")
@@ -577,7 +592,7 @@ def export_diagram_bundle(
                 workspace.write_new(f"{staged}/bundle.json", manifest)
                 sha256 = digest(manifest)
                 bundle = _publish(workspace, staged, bundle_id, sha256)
-                return {"ok": True, "bundle": bundle, "engine": engine, "producer": actor, "opt_in": True}
+                return {"ok": True, "bundle": bundle, "engine": engine, "producer": actor, "runtime": effective_runtime, "opt_in": True}
             except (OSError, ValueError) as exc:
                 # Never delete a partially written or sealed job, even after rename/fsync failure.
                 return {"ok": False, "error": str(exc), "recovery": {"path": f"{staged}/bundle.json", "sha256": sha256 or None,

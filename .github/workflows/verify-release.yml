@@ -8,7 +8,7 @@ on:
       tag:
         description: Published release tag
         required: true
-        default: v0.4.0
+        default: v0.5.0
         type: string
 
 permissions:
@@ -22,9 +22,14 @@ jobs:
   published-artifacts:
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        distribution: [wheel, sdist]
     env:
       RELEASE_TAG: ${{ github.event.release.tag_name || inputs.tag }}
       GH_TOKEN: ${{ github.token }}
+      DISTRIBUTION: ${{ matrix.distribution }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -60,12 +65,14 @@ jobs:
       - name: Verify complete checksum inventory
         working-directory: .tmp/release-assets
         run: sha256sum --check SHA256SUMS
-      - name: Load the released renderer and install the released wheel
+      - name: Load the released renderer and install the released distribution
         run: |
           set -euo pipefail
           docker image load --input .tmp/release-assets/diavisuals-render-v0.3.0-linux-amd64.tar.gz
           uv venv .tmp/release-venv
-          uv pip install --python .tmp/release-venv/bin/python ".tmp/release-assets/diavisuals-${RELEASE_TAG#v}-py3-none-any.whl[mcp]"
+          if [ "$DISTRIBUTION" = wheel ]; then suffix=py3-none-any.whl; else suffix=tar.gz; fi
+          if [ "$DISTRIBUTION" = wheel ]; then separator=-; else separator=.; fi
+          uv pip install --python .tmp/release-venv/bin/python ".tmp/release-assets/diavisuals-${RELEASE_TAG#v}${separator}${suffix}[mcp]"
           .tmp/release-venv/bin/python - <<'PY'
           import json, pathlib, subprocess
           from diavisuals import __version__, artifacts, registry
@@ -77,13 +84,18 @@ jobs:
           actual = subprocess.check_output(['docker', 'image', 'inspect', '--format', '{{.Id}}', runtime['image']], text=True).strip()
           assert actual == runtime['image_id']
           assert registry.factory_manifest()['contracts']['artifact_handoff'] == release['artifact_handoff']
+          assert registry.factory_manifest()['contracts']['renderer_selection'] == release['runtime_selection']
+          assert (registry.factory_metadata_root() / 'mcp-factory.yml').read_bytes() == pathlib.Path('.tmp/release-assets/mcp-factory-package.yml').read_bytes()
+          acceptance = json.loads(pathlib.Path('.tmp/release-assets/acceptance.json').read_text())
+          assert acceptance['commit'] == release['commit'] and acceptance['version'] == release['version']
           assert set(release['required_tools']) <= set(registry.MCP_TOOL_NAMES)
           PY
           .tmp/release-venv/bin/diavisuals factory-check
           .tmp/release-venv/bin/diavisuals mcp-smoke
+          .tmp/release-venv/bin/diavisuals --runtime-image sha256:5a6887b372a0e1c386a7b54981d11ae1910215baeb6a12dfd0706b3e85ef0846 renderer-status
       - name: Exercise the installed producer against the published runtime
         env:
           DIAVISUALS_INSTALLED: '1'
           DIAVISUALS_DOCKER_SMOKE: '1'
           DIAVISUALS_MCP_SMOKE: '1'
-        run: .tmp/release-venv/bin/python -m unittest tests.test_artifacts tests.test_artifacts_runtime
+        run: .tmp/release-venv/bin/python -m unittest tests.test_artifacts tests.test_artifacts_runtime tests.test_runtime_selection tests.test_runtime_selection_docker

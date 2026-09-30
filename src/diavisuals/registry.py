@@ -23,6 +23,7 @@ from typing import Any
 import yaml
 
 from . import __version__
+from .runtime import RuntimeSelection, runtime_selection, validate_runtime_identity
 
 DEFAULT_RELEASE = f"v{__version__}"
 DEFAULT_COMPATIBILITY = "mermaid-11.16.0-plantuml-1.2026.1"
@@ -90,6 +91,7 @@ MCP_TOOL_NAMES = (
     "style_audit",
     "check_styles",
     "compatibility_status",
+    "renderer_status",
     "release_status",
     "submodule_plan",
     "project_check",
@@ -320,10 +322,14 @@ def git_tag(path: pathlib.Path | None = None) -> str | None:
 
 
 def parse_env(path: pathlib.Path) -> dict[str, str]:
-    values: dict[str, str] = {}
     if not path.exists():
-        return values
-    for raw in path.read_text(encoding="utf-8").splitlines():
+        return {}
+    return parse_env_text(path.read_text(encoding="utf-8"))
+
+
+def parse_env_text(text: str) -> dict[str, str]:
+    values: dict[str, str] = {}
+    for raw in text.splitlines():
         line = raw.strip()
         if not line or line.startswith("#") or "=" not in line:
             continue
@@ -364,6 +370,7 @@ def renderer_profile(profile: str = DEFAULT_COMPATIBILITY) -> dict[str, Any]:
     return {
         "ok": not issues,
         "profile": str(compat.get("requested") or pathlib.Path(profile).stem),
+        "profile_sha256": hashlib.sha256((root / compat["requested_path"]).read_bytes()).hexdigest() if compat["ok"] else None,
         "image": image,
         "dockerfile": dockerfile,
         "dockerfile_path": str(dockerfile_path) if dockerfile_path else None,
@@ -416,7 +423,13 @@ def _build_renderer_image(renderer: dict[str, Any], root: pathlib.Path, *, dry_r
     return {"ok": result["returncode"] == 0, "renderer": renderer, "result": result}
 
 
-def build_renderer_image(profile: str = DEFAULT_COMPATIBILITY, *, dry_run: bool = False) -> dict[str, Any]:
+def build_renderer_image(
+    profile: str = DEFAULT_COMPATIBILITY, *, dry_run: bool = False, runtime: RuntimeSelection | None = None,
+) -> dict[str, Any]:
+    runtime = runtime if runtime is not None else runtime_selection()
+    if runtime.explicit:
+        # Even the build lifecycle must never construct or retag an explicit ref.
+        return {**renderer_status(profile, runtime=runtime), "dry_run": dry_run}
     root = repo_dir()
     renderer = renderer_profile(profile)
     if not renderer["ok"]:
@@ -438,7 +451,55 @@ def _inspect_renderer_image(renderer: dict[str, Any], root: pathlib.Path) -> dic
     return {**inspect, "image_id": image_id}
 
 
-def ensure_renderer_image(profile: str = DEFAULT_COMPATIBILITY) -> dict[str, Any]:
+def runtime_identity(renderer: dict[str, Any], runtime: RuntimeSelection, image_id: str | None) -> dict[str, Any]:
+    return {
+        "mode": "explicit" if runtime.explicit else "profile",
+        "requested_ref": runtime.image_ref if runtime.explicit else renderer["image"],
+        "expected_image_id": runtime.expected_image_id,
+        "image_id": image_id,
+        "profile_sha256": renderer["profile_sha256"],
+    }
+
+
+def renderer_status(profile: str = DEFAULT_COMPATIBILITY, *, runtime: RuntimeSelection | None = None) -> dict[str, Any]:
+    """Read-only local resolution; never pull, build or modify a Docker alias."""
+    runtime = runtime if runtime is not None else runtime_selection()
+    renderer = renderer_profile(profile)
+    if not renderer["ok"]:
+        return {"ok": False, "renderer": renderer, "built": False}
+    error = ""
+    image_id = None
+    if runtime.explicit:
+        inspected = run(["docker", "image", "inspect", "--format", '{"Id":{{json .Id}},"RepoDigests":{{json .RepoDigests}}}', runtime.image_ref], timeout=60)
+        try:
+            info = json.loads(inspected["stdout"]) if inspected["returncode"] == 0 else {}
+            image_id = info.get("Id")
+            if not isinstance(image_id, str) or not DOCKER_IMAGE_ID_RE.fullmatch(image_id):
+                raise ValueError("explicit runtime is not available locally or has no valid image ID")
+            if runtime.expected_image_id is not None and image_id != runtime.expected_image_id:
+                raise ValueError("explicit runtime image ID does not match the expected identity")
+            if runtime.repository_digest:
+                digests = info.get("RepoDigests")
+                if not isinstance(digests, list) or not all(isinstance(item, str) for item in digests) or runtime.repository_digest not in digests:
+                    raise ValueError("explicit runtime repository digest was not verified by Docker")
+        except (ValueError, AttributeError, TypeError) as exc:
+            error = str(exc)
+    else:
+        inspected = _inspect_renderer_image(renderer, repo_dir())
+        image_id = inspected["image_id"]
+        if not image_id:
+            error = "profile renderer is not available locally"
+    return {
+        "ok": not error, "renderer": renderer, "inspect": inspected, "image_id": image_id,
+        "runtime": runtime_identity(renderer, runtime, image_id), "built": False,
+        **({"error": error} if error else {}),
+    }
+
+
+def ensure_renderer_image(profile: str = DEFAULT_COMPATIBILITY, *, runtime: RuntimeSelection | None = None) -> dict[str, Any]:
+    runtime = runtime if runtime is not None else runtime_selection()
+    if runtime.explicit:
+        return renderer_status(profile, runtime=runtime)
     root = repo_dir()
     renderer = renderer_profile(profile)
     if not renderer["ok"]:
@@ -451,6 +512,7 @@ def ensure_renderer_image(profile: str = DEFAULT_COMPATIBILITY) -> dict[str, Any
                 "renderer": renderer,
                 "inspect": inspect,
                 "image_id": inspect["image_id"],
+                "runtime": runtime_identity(renderer, runtime, inspect["image_id"]),
                 "built": False,
             }
         build = _build_renderer_image(renderer, root, dry_run=False)
@@ -462,6 +524,7 @@ def ensure_renderer_image(profile: str = DEFAULT_COMPATIBILITY) -> dict[str, Any
             "renderer": renderer,
             "inspect": reinspect,
             "image_id": reinspect["image_id"],
+            "runtime": runtime_identity(renderer, runtime, reinspect["image_id"]),
             "build": build,
             "built": True,
         }
@@ -830,6 +893,43 @@ def _copy_staged_asset(source: pathlib.Path, destination: pathlib.Path, asset_ro
     destination.chmod(0o555 if executable else 0o444)
 
 
+def renderer_asset_paths(engine: str, style_name: str, output_format: str) -> list[pathlib.Path]:
+    root = repo_dir()
+    tools = ["render-one.sh", "style-diagram-source.sh", "resolve-style-name.sh"]
+    if engine == "mermaid" and output_format == "svg":
+        tools.append("normalize-mermaid-svg.py")
+    suffix = "mmd" if engine == "mermaid" else "puml"
+    styles = root / "styles" / engine
+    return [root / "tools" / name for name in tools] + [
+        styles / f"{style_name}.{'json' if engine == 'mermaid' else 'puml'}",
+        *sorted((styles / style_name).glob(f"*.{suffix}")),
+    ]
+
+
+def render_resources_identity(renderer: dict[str, Any], engine: str, style_name: str, output_format: str) -> str:
+    """Hash the effective profile/style/tool bytes, independently of runtime selection."""
+    from .handoff_fs import Workspace
+
+    root = repo_dir()
+    paths = [root / "compat" / f"{renderer['profile']}.env", *renderer_asset_paths(engine, style_name, output_format)]
+    with Workspace(root) as assets:
+        hashes = {rel(path, root): hashlib.sha256(assets.read(rel(path, root), package_asset=True)).hexdigest() for path in paths}
+        assets.recheck()
+    if hashes[f"compat/{renderer['profile']}.env"] != renderer["profile_sha256"]:
+        raise ValueError("profile changed during runtime resolution")
+    return hashlib.sha256(json.dumps(hashes, sort_keys=True).encode()).hexdigest()
+
+
+def staged_resources_identity(bundle: pathlib.Path, renderer: dict[str, Any]) -> str:
+    from .handoff_fs import Workspace
+
+    with Workspace(bundle) as assets:
+        hashes = {path: hashlib.sha256(assets.read(path)).hexdigest() for path in assets.inventory("") if not path.startswith("input/")}
+        assets.recheck()
+    hashes[f"compat/{renderer['profile']}.env"] = renderer["profile_sha256"]
+    return hashlib.sha256(json.dumps(hashes, sort_keys=True).encode()).hexdigest()
+
+
 def stage_renderer_bundle(
     stage_root: pathlib.Path,
     *,
@@ -879,50 +979,14 @@ def stage_renderer_bundle(
         staged_source.write_bytes(source_data)
     staged_source.chmod(0o444)
 
-    tool_names = ["render-one.sh", "style-diagram-source.sh", "resolve-style-name.sh"]
-    if engine == "mermaid" and output_format == "svg":
-        tool_names.append("normalize-mermaid-svg.py")
-    for tool_name in tool_names:
+    for path in renderer_asset_paths(engine, style_name, output_format):
         _copy_staged_asset(
-            asset_root / "tools" / tool_name,
-            bundle / "tools" / tool_name,
+            path,
+            bundle / path.relative_to(asset_root),
             asset_root,
-            executable=tool_name.endswith(".sh"),
+            executable=path.parent == asset_root / "tools" and path.suffix == ".sh",
             strict=strict_assets,
         )
-
-    if engine == "mermaid":
-        style_root = asset_root / "styles" / "mermaid"
-        _copy_staged_asset(
-            style_root / f"{style_name}.json",
-            bundle / "styles" / "mermaid" / f"{style_name}.json",
-            asset_root,
-            strict=strict_assets,
-        )
-        override_root = style_root / style_name
-        for override in sorted(override_root.glob("*.mmd")):
-            _copy_staged_asset(
-                override,
-                bundle / "styles" / "mermaid" / style_name / override.name,
-                asset_root,
-                strict=strict_assets,
-            )
-    else:
-        style_root = asset_root / "styles" / "plantuml"
-        _copy_staged_asset(
-            style_root / f"{style_name}.puml",
-            bundle / "styles" / "plantuml" / f"{style_name}.puml",
-            asset_root,
-            strict=strict_assets,
-        )
-        override_root = style_root / style_name
-        for override in sorted(override_root.glob("*.puml")):
-            _copy_staged_asset(
-                override,
-                bundle / "styles" / "plantuml" / style_name / override.name,
-                asset_root,
-                strict=strict_assets,
-            )
 
     for directory in sorted((path for path in bundle.rglob("*") if path.is_dir()), reverse=True):
         directory.chmod(0o555)
@@ -952,6 +1016,7 @@ def build_renderer_command(
         "docker",
         "run",
         "--rm",
+        "--pull=never",
         "--cidfile",
         str(cidfile),
         "--name",
@@ -1239,6 +1304,19 @@ def resolve_output_format(output: pathlib.Path | None, requested: str | None) ->
     return output_format
 
 
+def prepare_render_runtime(profile: str, runtime: RuntimeSelection, *, dry_run: bool) -> dict[str, Any]:
+    if dry_run and not runtime.explicit:
+        renderer = renderer_profile(profile)
+        return {"ok": renderer["ok"], "renderer": renderer, "image_id": None, "built": False}
+    # Explicit dry runs validate local identity, but can never prepare by building.
+    return ensure_renderer_image(profile, runtime=runtime)
+
+
+def render_provenance_path(root: pathlib.Path, output: pathlib.Path) -> pathlib.Path:
+    key = hashlib.sha256(rel(output, root).encode()).hexdigest()
+    return root / ".cache/diavisuals/renders" / f"{key}.json"
+
+
 def render_diagram(
     project_root: str | pathlib.Path,
     *,
@@ -1250,6 +1328,7 @@ def render_diagram(
     profile: str = DEFAULT_COMPATIBILITY,
     output_format: str = "",
     dry_run: bool = False,
+    runtime: RuntimeSelection | None = None,
 ) -> dict[str, Any]:
     root = pathlib.Path(project_root).expanduser().resolve()
     if not root.is_dir():
@@ -1284,6 +1363,7 @@ def render_diagram(
         profile=profile,
         output_format=output_format,
         dry_run=dry_run,
+        runtime=runtime,
     )
 
 
@@ -1299,19 +1379,32 @@ def _render_diagram_source(
     profile: str,
     output_format: str,
     dry_run: bool,
+    runtime: RuntimeSelection | None = None,
+    prepared_image: dict[str, Any] | None = None,
+    expected_resources_sha256: str | None = None,
 ) -> dict[str, Any]:
-
+    runtime = runtime if runtime is not None else runtime_selection()
     renderer = renderer_profile(profile)
     if not renderer["ok"]:
         return {"ok": False, "renderer": renderer}
 
     style_query = (style or "").strip() or family
     style_name = resolve_style_name(resolved_engine, style_query)
+    resources_sha256 = render_resources_identity(renderer, resolved_engine, style_name, output_format)
+    if expected_resources_sha256 is not None and resources_sha256 != expected_resources_sha256:
+        raise ValueError("render resources changed during cache selection")
+    image = prepared_image if prepared_image is not None else prepare_render_runtime(profile, runtime, dry_run=dry_run)
+    if not image.get("ok"):
+        return {"ok": False, "renderer": renderer, "image": image}
+    image_id = image.get("image_id")
+    if (not dry_run or runtime.explicit) and not DOCKER_IMAGE_ID_RE.fullmatch(str(image_id or "")):
+        return {"ok": False, "image": image, "error": "renderer did not resolve to an immutable image ID"}
+    identity = runtime_identity(renderer, runtime, image_id)
     private_stage = pathlib.Path("/tmp/diavisuals-render-PRIVATE")
     container_name = renderer_container_name(root)
     command = build_renderer_command(
         root=root,
-        renderer=renderer,
+        renderer={**renderer, "image": image_id or renderer["image"]},
         engine=resolved_engine,
         style_name=style_name,
         output_format=output_format,
@@ -1333,18 +1426,13 @@ def _render_diagram_source(
         "output_format": output_format,
         "staging": "private",
         "renderer": renderer,
+        "runtime": identity,
+        "resources_sha256": resources_sha256,
         "command": command,
     }
     if dry_run:
         payload["dry_run"] = True
         return payload
-
-    image = ensure_renderer_image(profile)
-    if not image.get("ok"):
-        return {**payload, "ok": False, "image": image}
-    image_id = str(image.get("image_id") or "")
-    if not DOCKER_IMAGE_ID_RE.fullmatch(image_id):
-        return {**payload, "ok": False, "image": image, "error": "renderer did not resolve to an immutable image ID"}
 
     with tempfile.TemporaryDirectory(prefix="diavisuals-render-") as temporary_root:
         stage = stage_renderer_bundle(
@@ -1356,6 +1444,8 @@ def _render_diagram_source(
             style_name=style_name,
             output_format=output_format,
         )
+        if staged_resources_identity(stage["bundle"], renderer) != resources_sha256:
+            raise ValueError("staged resources differ from the selected resource identity")
         container_name = renderer_container_name(root)
         command = build_renderer_command(
             root=root,
@@ -1378,6 +1468,29 @@ def _render_diagram_source(
         artifact_check = validate_rendered_artifact(stage["artifact"], output_format)
         if completed["returncode"] == 0 and completed["cleanup"]["ok"] and artifact_check["ok"]:
             try:
+                if render_resources_identity(renderer, resolved_engine, style_name, output_format) != resources_sha256:
+                    raise ValueError("render resources changed while rendering")
+                if staged_resources_identity(stage["bundle"], renderer) != resources_sha256:
+                    raise ValueError("staged render resources changed while rendering")
+                provenance = {
+                    "schema_version": 1, "producer_version": __version__, "source": rel(source, root),
+                    "source_kind": "inline" if source_data is not None else "file",
+                    "source_sha256": hashlib.sha256((stage["bundle"] / "input" / f"source{'.mmd' if resolved_engine == 'mermaid' else '.puml'}").read_bytes()).hexdigest(),
+                    "output": rel(output, root), "artifact_sha256": hashlib.sha256(stage["artifact"].read_bytes()).hexdigest(),
+                    "engine": resolved_engine, "style": style_name, "profile": renderer["profile"],
+                    "output_format": output_format, "runtime": identity, "resources_sha256": resources_sha256,
+                }
+                provenance_path = render_provenance_path(root, output)
+                payload["render_provenance"] = provenance
+                # Preserve legacy direct-output behavior (no implicit cache).
+                # Explicit selections opt in; once managed, default-profile
+                # renders must also refresh the record when switching back.
+                if runtime.explicit or path_within(output, root / ".cache/diavisuals") or provenance_path.exists():
+                    _atomic_write_confined(root, provenance_path, (json_dumps(provenance) + "\n").encode())
+                    payload["provenance"] = rel(provenance_path, root)
+                # Write hash-bound metadata first: a metadata failure must not
+                # replace a valid output. If output publication then fails, the
+                # record cannot validate different pre-existing artifact bytes.
                 artifact_check = atomic_publish_artifact(stage["artifact"], output, root, output_format)
             except (OSError, ValueError) as exc:
                 artifact_check = {
@@ -1457,6 +1570,7 @@ def render_diagram_text(
     output_format: str = "",
     include_data: bool = True,
     dry_run: bool = False,
+    runtime: RuntimeSelection | None = None,
 ) -> dict[str, Any]:
     root = pathlib.Path(project_root).expanduser().resolve()
     if not root.is_dir():
@@ -1464,6 +1578,20 @@ def render_diagram_text(
     requested_output = resolve_project_path(root, output_path) if output_path else None
     output_format = resolve_output_format(requested_output, output_format)
     resolved_engine = diagram_engine_from_text(diagram_text, engine)
+    source_data = (diagram_text.rstrip() + "\n").encode("utf-8")
+    if len(source_data) > MAX_DIAGRAM_SOURCE_BYTES:
+        raise ValueError(f"diagram source exceeds the {MAX_DIAGRAM_SOURCE_BYTES}-byte limit")
+    runtime = runtime if runtime is not None else runtime_selection()
+    renderer = renderer_profile(profile)
+    if not renderer["ok"]:
+        return {"ok": False, "renderer": renderer}
+    style_name = resolve_style_name(resolved_engine, (style or "").strip() or family)
+    resources_sha256 = render_resources_identity(renderer, resolved_engine, style_name, output_format)
+    # Validate default cache confinement before any potentially building preparation.
+    reject_symlink_components(root / ".cache/diavisuals/outputs", root)
+    image = prepare_render_runtime(profile, runtime, dry_run=dry_run)
+    if not image.get("ok"):
+        return {"ok": False, "image": image}
     source_suffix = ".mmd" if resolved_engine == "mermaid" else ".puml"
     digest_values = {
         "engine": resolved_engine,
@@ -1472,17 +1600,14 @@ def render_diagram_text(
         "profile": profile,
         "output_format": output_format,
         "diagram_text": diagram_text,
+        "renderer": image.get("image_id") or renderer["image"],
+        "resources_sha256": resources_sha256,
+        "producer_version": __version__,
     }
     digest = hashlib.sha256(json.dumps(digest_values, sort_keys=True).encode("utf-8")).hexdigest()[:16]
     source = root / ".cache" / "diavisuals" / "inline" / resolved_engine / f"{digest}{source_suffix}"
     default_output = root / ".cache" / "diavisuals" / "outputs" / resolved_engine / f"{digest}.{output_format}"
     output = requested_output or resolve_project_path(root, rel(default_output, root))
-    source_data = (diagram_text.rstrip() + "\n").encode("utf-8")
-    if len(source_data) > MAX_DIAGRAM_SOURCE_BYTES:
-        raise ValueError(
-            f"diagram source exceeds the {MAX_DIAGRAM_SOURCE_BYTES}-byte limit"
-        )
-
     rendered = _render_diagram_source(
         root,
         source=source,
@@ -1494,6 +1619,9 @@ def render_diagram_text(
         profile=profile,
         output_format=output_format,
         dry_run=dry_run,
+        runtime=runtime,
+        prepared_image=image,
+        expected_resources_sha256=resources_sha256,
     )
     artifact = (
         diagram_artifact_payload(output, root, output_format, include_data=include_data)
@@ -1853,7 +1981,55 @@ def update_factory(dry_run: bool = False) -> dict[str, Any]:
     }
 
 
-def project_check(project_root: str | pathlib.Path = ".") -> dict[str, Any]:
+def _check_render_provenance(
+    root: pathlib.Path, source: pathlib.Path, source_sha256: str, runtime: RuntimeSelection,
+) -> str | None:
+    """Legacy unmanaged outputs retain mtime checks; managed/explicit ones bind runtime.
+
+    An edited SVG keeps its author ownership. Check its generated original's
+    provenance instead of attributing the author's edits to a renderer.
+    """
+    generated = pathlib.Path(str(source) + ".svg")
+    try:
+        raw, _ = _read_bounded_regular_file(root, render_provenance_path(root, generated), max_bytes=64 * 1024, description="render provenance")
+    except FileNotFoundError:
+        if runtime.explicit:
+            raise ValueError("missing render provenance for explicitly selected runtime; render the generated SVG first") from None
+        return None
+    record = json.loads(raw)
+    if not isinstance(record, dict) or record.get("schema_version") != 1:
+        raise ValueError("invalid render provenance")
+    for key in ("profile", "style", "engine"):
+        if not isinstance(record.get(key), str) or not STYLE_NAME_RE.fullmatch(record[key]):
+            raise ValueError(f"invalid render provenance {key}")
+    selected = renderer_status(record["profile"], runtime=runtime)
+    if not selected["ok"]:
+        raise ValueError(f"runtime identity cannot be verified: {selected.get('error', selected)}")
+    identity = record.get("runtime")
+    generated_data, _ = _read_bounded_regular_file(root, generated, max_bytes=MAX_COMPANION_ARTIFACT_BYTES, description="generated diagram output")
+    expected = {
+        "source_sha256": source_sha256,
+        "output": rel(generated, root), "artifact_sha256": hashlib.sha256(generated_data).hexdigest(),
+        "output_format": "svg", "engine": diagram_engine(source), "producer_version": __version__,
+    }
+    if record.get("source_kind", "file") == "file":
+        expected["source"] = rel(source, root)
+    elif record.get("source_kind") != "inline":
+        raise ValueError("invalid render provenance source kind")
+    if any(record.get(key) != value for key, value in expected.items()):
+        raise ValueError("render provenance is stale or its source/output bytes changed")
+    if not isinstance(identity, dict) or identity.get("image_id") != selected["image_id"]:
+        raise ValueError("render provenance has a different effective runtime image ID")
+    renderer = selected["renderer"]
+    if identity.get("profile_sha256") != renderer["profile_sha256"] or record.get("resources_sha256") != render_resources_identity(
+        renderer, record["engine"], record["style"], "svg",
+    ):
+        raise ValueError("render provenance has a different profile or resource identity")
+    validate_runtime_identity(identity, image_id=selected["image_id"], profile_sha256=renderer["profile_sha256"], profile_ref=renderer["image"])
+    return hashlib.sha256(raw).hexdigest()
+
+
+def project_check(project_root: str | pathlib.Path = ".", *, runtime: RuntimeSelection | None = None) -> dict[str, Any]:
     root = pathlib.Path(project_root).expanduser().resolve()
     if not root.is_dir():
         raise FileNotFoundError(f"project root not found: {project_root}")
@@ -1871,6 +2047,12 @@ def project_check(project_root: str | pathlib.Path = ".") -> dict[str, Any]:
         "receipt": {"path": PROJECT_RECEIPT_PATH.as_posix(), "published": False},
     }
     try:
+        runtime = runtime if runtime is not None else runtime_selection()
+        if runtime.explicit:
+            selected = renderer_status(runtime=runtime)
+            base["runtime"] = selected.get("runtime")
+            if not selected["ok"]:
+                raise ValueError(f"explicit runtime is unavailable or mismatched: {selected.get('error', selected)}")
         sources = _discover_project_diagrams(root)
     except (OSError, UnicodeError, ValueError) as exc:
         invalidated = _invalidate_project_receipt(root)
@@ -1948,6 +2130,7 @@ def project_check(project_root: str | pathlib.Path = ".") -> dict[str, Any]:
                 records.append(record)
                 issues.append(f"{source_name}: stale output {output_name}")
                 continue
+            provenance_sha256 = _check_render_provenance(root, source, source_sha256, runtime)
             record["state"] = "fresh"
             records.append(record)
             snapshots.append({
@@ -1955,6 +2138,7 @@ def project_check(project_root: str | pathlib.Path = ".") -> dict[str, Any]:
                 "source_sha256": source_sha256,
                 "output": output,
                 "artifact_sha256": output_sha256,
+                "provenance_sha256": provenance_sha256,
             })
         except (OSError, UnicodeError, ValueError) as exc:
             record["state"] = "invalid"
@@ -1985,6 +2169,8 @@ def project_check(project_root: str | pathlib.Path = ".") -> dict[str, Any]:
             )
             if hashlib.sha256(source_data).hexdigest() != snapshot["source_sha256"]:
                 raise ValueError(f"diagram source changed while it was being checked: {rel(snapshot['source'], root)}")
+            if _check_render_provenance(root, snapshot["source"], snapshot["source_sha256"], runtime) != snapshot["provenance_sha256"]:
+                raise ValueError("render provenance changed while it was being checked")
             edited = pathlib.Path(str(snapshot["source"]) + ".edited.svg")
             generated = pathlib.Path(str(snapshot["source"]) + ".svg")
             try:
@@ -2099,20 +2285,22 @@ def mcp_stdio_command() -> list[str]:
     return [sys.executable, "-m", "diavisuals.cli", "mcp", "serve"]
 
 
-def client_config(project: str = "${workspaceFolder}", command: str = "") -> dict[str, Any]:
+def client_config(project: str = "${workspaceFolder}", command: str = "", *, runtime: RuntimeSelection | None = None) -> dict[str, Any]:
+    runtime = runtime if runtime is not None else runtime_selection()
     server_command = [command, "mcp", "serve"] if command else mcp_stdio_command()
     return {
         "mcpServers": {
             "diavisuals": {
                 "command": server_command[0],
                 "args": server_command[1:],
-                "env": {"MCP_CONSUMER_WORKSPACE": project},
+                "env": {"MCP_CONSUMER_WORKSPACE": project, **runtime.environment()},
             }
         }
     }
 
 
-def vscode_client_config(project: str = "${workspaceFolder}", command: str = "") -> dict[str, Any]:
+def vscode_client_config(project: str = "${workspaceFolder}", command: str = "", *, runtime: RuntimeSelection | None = None) -> dict[str, Any]:
+    runtime = runtime if runtime is not None else runtime_selection()
     server_command = [command, "mcp", "serve"] if command else mcp_stdio_command()
     return {
         "servers": {
@@ -2120,7 +2308,7 @@ def vscode_client_config(project: str = "${workspaceFolder}", command: str = "")
                 "type": "stdio",
                 "command": server_command[0],
                 "args": server_command[1:],
-                "env": {"MCP_CONSUMER_WORKSPACE": project},
+                "env": {"MCP_CONSUMER_WORKSPACE": project, **runtime.environment()},
             }
         }
     }
@@ -2257,6 +2445,7 @@ def factory_manifest() -> dict[str, Any]:
             "consumer_root_fixed_at_startup": True,
             "container_consumer_mount": "none",
             "renderer_staging": "selected-input-and-style-assets-only",
+            "renderer_selection": "explicit-local-ref-and-expected-id-v1",
             "project_check_roots": list(UNALTRAWEB_DIAGRAM_ROOTS),
             "receipt": PROJECT_RECEIPT_PATH.as_posix(),
             "artifact_handoff": "v1-opt-in-leaf-diagram",

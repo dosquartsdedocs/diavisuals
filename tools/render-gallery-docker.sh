@@ -18,7 +18,6 @@ fi
 
 # shellcheck disable=SC1090
 source "$profile_source"
-image=${DIAVISUALS_RENDER_IMAGE:?DIAVISUALS_RENDER_IMAGE is required}
 family=${DIAVISUALS_FAMILY:-benizar}
 compat_id=${DIAVISUALS_COMPAT_ID:?DIAVISUALS_COMPAT_ID is required}
 if [[ $family == "." || $family == ".." || $compat_id == "." || $compat_id == ".." || ! $family =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ || ! $compat_id =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]]; then
@@ -28,7 +27,13 @@ fi
 out_dir="docs/gallery/${family}/${compat_id}"
 cli=${DIAVISUALS_COMMAND:-$repo_root/.venv/bin/diavisuals}
 
-"$cli" ensure-renderer --profile "compat/$profile_name" >/dev/null
+prepared=$("$cli" ensure-renderer --profile "compat/$profile_name")
+image=$(python3 -c 'import json, re, sys
+prepared = json.load(sys.stdin)
+image = prepared.get("image_id", "")
+if not prepared.get("ok") or not re.fullmatch(r"sha256:[0-9a-f]{64}", image):
+    raise SystemExit("renderer did not resolve to an immutable image ID")
+print(image)' <<<"$prepared")
 
 stage=$(mktemp -d)
 workspace="$stage/workspace"
@@ -95,7 +100,7 @@ container_name="diavisuals-gallery-${workspace_id}-$$"
 
 container_started=1
 set +e
-timeout --signal=TERM --kill-after=10s 900s docker run --rm \
+timeout --signal=TERM --kill-after=10s 900s docker run --rm --pull=never \
   --name "$container_name" \
   --label io.context.mcp-factory=diavisuals \
   --label "io.context.mcp-factory.workspace=${workspace_id}" \

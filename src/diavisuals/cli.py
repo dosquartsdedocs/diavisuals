@@ -24,6 +24,8 @@ from .registry import (
     MAX_DIAGRAM_SOURCE_BYTES,
     MCP_RESOURCE_URIS,
     MCP_TOOL_NAMES,
+    PROJECT_RECEIPT_PATH,
+    _invalidate_project_receipt,
     build_renderer_image,
     check_styles,
     client_config,
@@ -40,12 +42,14 @@ from .registry import (
     release_status,
     render_diagram,
     render_diagram_text,
+    renderer_status,
     style_audit,
     style_inventory,
     submodule_plan,
     update_factory,
     vscode_client_config,
 )
+from .runtime import runtime_selection
 
 
 def print_payload(payload: Any) -> None:
@@ -165,7 +169,7 @@ def cmd_down(args: argparse.Namespace) -> int:
 
 
 def cmd_project_check(args: argparse.Namespace) -> int:
-    payload = project_check(args.project)
+    payload = project_check(args.project, runtime=args.runtime)
     print_payload(payload)
     return 0 if payload.get("ok") else 1
 
@@ -185,7 +189,9 @@ def cmd_mcp_smoke(args: argparse.Namespace) -> int:
                 "mcp",
                 "serve",
             ],
-            env=dict(os.environ),
+            env={**{key: value for key, value in os.environ.items() if key not in {
+                "DIAVISUALS_RUNTIME_IMAGE", "DIAVISUALS_RUNTIME_EXPECTED_ID",
+            }}, **args.runtime.environment()},
         )
         async with stdio_client(parameters) as (read, write):
             async with ClientSession(read, write) as session:
@@ -224,13 +230,19 @@ def cmd_mcp_smoke(args: argparse.Namespace) -> int:
 
 
 def cmd_build_renderer(args: argparse.Namespace) -> int:
-    payload = build_renderer_image(args.profile, dry_run=args.dry_run)
+    payload = build_renderer_image(args.profile, dry_run=args.dry_run, runtime=args.runtime)
     print_payload(payload)
     return 0 if payload.get("ok") else 1
 
 
 def cmd_ensure_renderer(args: argparse.Namespace) -> int:
-    payload = ensure_renderer_image(args.profile)
+    payload = ensure_renderer_image(args.profile, runtime=args.runtime)
+    print_payload(payload)
+    return 0 if payload.get("ok") else 1
+
+
+def cmd_renderer_status(args: argparse.Namespace) -> int:
+    payload = renderer_status(args.profile, runtime=args.runtime)
     print_payload(payload)
     return 0 if payload.get("ok") else 1
 
@@ -246,6 +258,7 @@ def cmd_render_diagram(args: argparse.Namespace) -> int:
         profile=args.profile,
         output_format=args.output_format,
         dry_run=args.dry_run,
+        runtime=args.runtime,
     )
     print_payload(payload)
     return 0 if payload.get("ok") else 1
@@ -269,6 +282,7 @@ def cmd_render_diagram_text(args: argparse.Namespace) -> int:
         output_format=args.output_format,
         include_data=not args.no_data,
         dry_run=args.dry_run,
+        runtime=args.runtime,
     )
     print_payload(payload)
     return 0 if payload.get("ok") else 1
@@ -276,9 +290,9 @@ def cmd_render_diagram_text(args: argparse.Namespace) -> int:
 
 def cmd_client_config(args: argparse.Namespace) -> int:
     if args.format == "vscode-workspace":
-        payload = vscode_client_config(project=args.workspace_placeholder, command=args.command)
+        payload = vscode_client_config(project=args.workspace_placeholder, command=args.command, runtime=args.runtime)
     else:
-        payload = client_config(project=args.workspace_placeholder, command=args.command)
+        payload = client_config(project=args.workspace_placeholder, command=args.command, runtime=args.runtime)
     print_payload(payload)
     return 0
 
@@ -296,6 +310,7 @@ def cmd_export_bundle(args: argparse.Namespace) -> int:
         bundle_id=args.bundle_id, engine=args.engine, family=args.family, style=args.style,
         profile=args.profile, output_format=args.output_format, original_path=args.original,
         edited_paths=args.edited, dry_run=args.dry_run,
+        runtime=args.runtime,
     )
     print_payload(payload)
     return 0 if payload.get("ok") else 1
@@ -317,7 +332,7 @@ def cmd_mcp(args: argparse.Namespace) -> int:
     if args.mcp_command == "serve":
         from .mcp_server import run_server
 
-        run_server(pathlib.Path(args.project))
+        run_server(pathlib.Path(args.project), runtime=args.runtime)
         return 0
     if args.mcp_command == "client-config":
         return cmd_client_config(args)
@@ -331,7 +346,7 @@ def cmd_install_codex_mcp(args: argparse.Namespace) -> int:
         print_payload(payload)
         return 1
 
-    server_command = client_config(project=args.codex_project or args.project, command=args.command)["mcpServers"]["diavisuals"]
+    server_command = client_config(project=args.codex_project or args.project, command=args.command, runtime=args.runtime)["mcpServers"]["diavisuals"]
     server_parts = [server_command["command"], *server_command.get("args", [])]
     server_env = server_command.get("env", {})
     env_args = [value for key, value in server_env.items() for value in ("--env", f"{key}={value}")]
@@ -367,6 +382,8 @@ def cmd_install_codex_mcp(args: argparse.Namespace) -> int:
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="diavisuals")
+    parser.add_argument("--runtime-image", help="Explicit local image ID, repository digest, or alias with --runtime-expected-id (before subcommand)")
+    parser.add_argument("--runtime-expected-id", help="Expected Docker image/config ID: sha256:<64 hex digits> (before subcommand)")
     parser.add_argument(
         "--project",
         default=None,
@@ -448,6 +465,10 @@ def build_parser() -> argparse.ArgumentParser:
     ensure_renderer_parser = subcommands.add_parser("ensure-renderer", help="Ensure the Docker renderer image exists")
     ensure_renderer_parser.add_argument("--profile", default=DEFAULT_COMPATIBILITY)
     ensure_renderer_parser.set_defaults(func=cmd_ensure_renderer)
+
+    status_parser = subcommands.add_parser("renderer-status", help="Inspect the selected local renderer without building or pulling")
+    status_parser.add_argument("--profile", default=DEFAULT_COMPATIBILITY)
+    status_parser.set_defaults(func=cmd_renderer_status)
 
     render_parser = subcommands.add_parser("render-diagram", help="Render one styled Mermaid or PlantUML diagram through Docker")
     render_parser.add_argument("input")
@@ -531,9 +552,17 @@ def main(argv: list[str] | None = None) -> int:
     ):
         args.project = str(pathlib.Path(args.project).absolute())
     try:
+        args.runtime = runtime_selection(args.runtime_image, args.runtime_expected_id)
         return int(args.func(args))
     except Exception as exc:
-        print(json.dumps({"ok": False, "error": str(exc)}, indent=2), file=sys.stderr)
+        payload = {"ok": False, "error": str(exc)}
+        if args.command == "project-check":
+            # Selection parsing can fail before project_check gets control. A
+            # failed check must not leave an apparently successful old receipt.
+            root = pathlib.Path(args.project).expanduser().resolve()
+            payload["receipt"] = {"path": PROJECT_RECEIPT_PATH.as_posix(), "published": False,
+                                  "invalidation": _invalidate_project_receipt(root)}
+        print(json.dumps(payload, indent=2), file=sys.stderr)
         return 1
 
 
