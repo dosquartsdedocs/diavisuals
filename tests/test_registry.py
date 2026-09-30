@@ -476,7 +476,7 @@ class RegistryTest(unittest.TestCase):
             "diavisuals.mcp_server.run_server"
         ) as run_server:
             self.assertEqual(cli_main(["mcp", "serve"]), 0)
-        run_server.assert_called_once_with(Path(project))
+        run_server.assert_called_once_with(Path(project), runtime=registry.RuntimeSelection())
 
         with mock.patch.dict(os.environ, {"MCP_CONSUMER_WORKSPACE": project}), mock.patch(
             "diavisuals.cli.factory_check", return_value={"ok": True}
@@ -489,7 +489,7 @@ class RegistryTest(unittest.TestCase):
             "diavisuals.mcp_server.run_server"
         ) as run_server:
             self.assertEqual(cli_main(["--project", explicit, "mcp", "serve"]), 0)
-        run_server.assert_called_once_with(Path(explicit))
+        run_server.assert_called_once_with(Path(explicit), runtime=registry.RuntimeSelection())
 
     def test_factory_check_compares_install_scope(self) -> None:
         static = registry.yaml.safe_load((REPO_ROOT / "mcp-factory.yml").read_text(encoding="utf-8"))

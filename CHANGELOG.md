@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.5.0 - 2026-09-30
+
+- Add a native, process-bound runtime selection independent of compatibility profile bytes, with expected image ID/repository-digest validation and an inspect-only explicit preparation path.
+- Share the selection across CLI, MCP, rendering, gallery preparation and retained exports; never build, pull or retag a missing/mismatched explicit selection.
+- Bind inline cache paths and managed-output freshness to effective image, resource and producer identities; preserve legacy default direct-output behavior and the native provider receipt format.
+- Retain and verify runtime-selection evidence while keeping historical v1 bundles readable. Reuse the published renderer bytes in a new control-plane distribution.
+- Reject malformed Docker RepoDigest evidence, invalidate receipts on malformed CLI selection, and accept inline render provenance only when it matches the project's exact source bytes.
+
 ## 0.4.0 - 2026-09-24
 
 - Add opt-in MCP artifact handoff v1 export, verification and recovery for one Mermaid or PlantUML diagram, from file or exact inline UTF-8 bytes.
