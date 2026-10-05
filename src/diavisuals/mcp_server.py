@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import pathlib
+from contextlib import asynccontextmanager
 from typing import Any
 
 from . import artifacts
 from . import registry as core
+from .session import ServerSession
 
 
 def _resolve_consumer_root(project: pathlib.Path) -> pathlib.Path:
@@ -24,6 +26,7 @@ def run_server(project: pathlib.Path, *, runtime: core.RuntimeSelection | None =
     runtime = runtime if runtime is not None else core.runtime_selection()
     # Preserve the selected spelling for the stricter v1 no-link ancestor check.
     artifact_root = project.expanduser().absolute()
+    instance = ServerSession(consumer_root, runtime)
     try:
         from mcp.server.fastmcp import FastMCP
         from mcp.types import CallToolResult, TextContent
@@ -33,7 +36,14 @@ def run_server(project: pathlib.Path, *, runtime: core.RuntimeSelection | None =
             "python3 -m pip install 'diavisuals[mcp]'"
         ) from exc
 
-    mcp = FastMCP("diavisuals")
+    @asynccontextmanager
+    async def lifespan(_server):
+        try:
+            yield {}
+        finally:
+            instance.close()
+
+    mcp = FastMCP("diavisuals", lifespan=lifespan)
 
     def require_ok(payload: dict[str, Any]) -> Any:
         if payload.get("ok") is not True:
@@ -50,6 +60,42 @@ def run_server(project: pathlib.Path, *, runtime: core.RuntimeSelection | None =
         except Exception as exc:
             payload = {"ok": False, "error": str(exc)}
         return require_ok(payload)
+
+    async def operation(name: str, callback: Any) -> Any:
+        import anyio
+
+        def execute():
+            with instance.operation(name):
+                return callback()
+
+        try:
+            # Keep identity/release responsive while an owned job runs. Do not
+            # abandon a live worker thread on stdio EOF: let its bounded render
+            # and exact-container cleanup finish before process exit.
+            payload = await anyio.to_thread.run_sync(execute)
+        except Exception as exc:
+            payload = {"ok": False, "error": str(exc)}
+        return require_ok(payload)
+
+    async def live_identity() -> dict[str, Any]:
+        import anyio
+
+        return await anyio.to_thread.run_sync(instance.identity)
+
+    @mcp.resource("diavisuals://server/identity")
+    async def identity_resource() -> str:
+        """Bounded identity of this live serving process; no consumer reads or preparation."""
+        return core.json_dumps(await live_identity())
+
+    @mcp.tool()
+    async def server_identity() -> dict[str, Any]:
+        """Observe this serving instance, loaded code/disk drift, binding, workers and lifecycle."""
+        return await live_identity()
+
+    @mcp.tool()
+    def release_session(expected_instance_id: str) -> dict[str, Any]:
+        """Drain this idle stdio instance; refuse busy/unknown state. Caller then closes/waits."""
+        return tool_result(lambda: instance.release(expected_instance_id))
 
     @mcp.resource("diavisuals://agent-guide")
     def agent_guide() -> str:
@@ -91,9 +137,13 @@ def run_server(project: pathlib.Path, *, runtime: core.RuntimeSelection | None =
         )
 
     @mcp.resource("diavisuals://project/check")
-    def project_check_resource() -> str:
+    async def project_check_resource() -> str:
         """Project-wide diagram output and unaltraweb receipt check."""
-        return core.json_dumps(core.project_check(consumer_root, runtime=runtime))
+        def checked():
+            with instance.operation("project_check"):
+                return core.project_check(consumer_root, runtime=runtime)
+        import anyio
+        return core.json_dumps(await anyio.to_thread.run_sync(checked))
 
     @mcp.resource("diavisuals://factory-manifest")
     def manifest() -> str:
@@ -142,12 +192,12 @@ def run_server(project: pathlib.Path, *, runtime: core.RuntimeSelection | None =
         )
 
     @mcp.tool()
-    def project_check() -> dict[str, Any]:
+    async def project_check() -> dict[str, Any]:
         """Check all supported project diagram outputs and publish the provider receipt."""
-        return tool_result(lambda: core.project_check(consumer_root, runtime=runtime))
+        return await operation("project_check", lambda: core.project_check(consumer_root, runtime=runtime))
 
     @mcp.tool()
-    def render_diagram(
+    async def render_diagram(
         input_path: str,
         output_path: str,
         engine: str = "auto",
@@ -158,7 +208,7 @@ def run_server(project: pathlib.Path, *, runtime: core.RuntimeSelection | None =
         dry_run: bool = False,
     ) -> dict[str, Any]:
         """Render one styled Mermaid or PlantUML diagram through the diavisuals Docker renderer."""
-        return tool_result(
+        return await operation("render_diagram",
             lambda: core.render_diagram(
                 consumer_root,
                 input_path=input_path,
@@ -174,7 +224,7 @@ def run_server(project: pathlib.Path, *, runtime: core.RuntimeSelection | None =
         )
 
     @mcp.tool()
-    def render_diagram_text(
+    async def render_diagram_text(
         diagram_text: str,
         engine: str = "auto",
         family: str = core.DEFAULT_FAMILY,
@@ -186,7 +236,7 @@ def run_server(project: pathlib.Path, *, runtime: core.RuntimeSelection | None =
         dry_run: bool = False,
     ) -> dict[str, Any]:
         """Render Mermaid or PlantUML source text and return the generated image artifact."""
-        return tool_result(
+        return await operation("render_diagram_text",
             lambda: core.render_diagram_text(
                 consumer_root,
                 diagram_text=diagram_text,
@@ -203,12 +253,12 @@ def run_server(project: pathlib.Path, *, runtime: core.RuntimeSelection | None =
         )
 
     @mcp.tool()
-    def initialize_artifact_export() -> dict[str, Any]:
+    async def initialize_artifact_export() -> dict[str, Any]:
         """Opt in to retained diagram bundles and prepare confined ignored recovery staging."""
-        return tool_result(lambda: artifacts.initialize_artifact_export(artifact_root))
+        return await operation("initialize_artifact_export", lambda: artifacts.initialize_artifact_export(artifact_root))
 
     @mcp.tool()
-    def export_diagram_bundle(
+    async def export_diagram_bundle(
         input_path: str | None = None,
         diagram_text: str | None = None,
         bundle_id: str = "",
@@ -222,7 +272,7 @@ def run_server(project: pathlib.Path, *, runtime: core.RuntimeSelection | None =
         dry_run: bool = False,
     ) -> dict[str, Any]:
         """Render one file OR inline source and retain a sealed v1 bundle, optionally with selected original/edited SVGs."""
-        return tool_result(lambda: artifacts.export_diagram_bundle(
+        return await operation("export_diagram_bundle", lambda: artifacts.export_diagram_bundle(
             artifact_root, input_path=input_path, diagram_text=diagram_text, bundle_id=bundle_id,
             engine=engine, family=family, style=style, profile=profile, output_format=output_format,
             original_path=original_path, edited_paths=edited_paths, dry_run=dry_run,
@@ -235,14 +285,14 @@ def run_server(project: pathlib.Path, *, runtime: core.RuntimeSelection | None =
         return tool_result(lambda: artifacts.check_diagram_bundle(artifact_root, path=path, sha256=sha256))
 
     @mcp.tool()
-    def recover_diagram_bundle(path: str, sha256: str, bundle_id: str) -> dict[str, Any]:
+    async def recover_diagram_bundle(path: str, sha256: str, bundle_id: str) -> dict[str, Any]:
         """Publish an exact sealed staging job to a new bundle name after a publication failure."""
-        return tool_result(lambda: artifacts.recover_diagram_bundle(artifact_root, path=path, sha256=sha256, bundle_id=bundle_id))
+        return await operation("recover_diagram_bundle", lambda: artifacts.recover_diagram_bundle(artifact_root, path=path, sha256=sha256, bundle_id=bundle_id))
 
     @mcp.tool()
-    def update(dry_run: bool = False) -> dict[str, Any]:
+    async def update(dry_run: bool = False) -> dict[str, Any]:
         """Update the diavisuals factory checkout."""
-        return tool_result(lambda: core.update_factory(dry_run=dry_run))
+        return await operation("update", lambda: core.update_factory(dry_run=dry_run))
 
     @mcp.tool()
     def factory_manifest() -> dict[str, Any]:

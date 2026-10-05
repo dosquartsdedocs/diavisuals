@@ -2,9 +2,10 @@
 
 `diavisuals` release tags stay short. The engine versions and supported diagram sets are documented here, in the README badges, and in the gallery manifests.
 
-## Control plane 0.5.0
+## Control plane 0.6.0
 
-`0.5.0` adds [native immutable runtime selection](runtime-selection.md).
+`0.6.0` adds [D0 live serving identity and scoped lifecycle](native-runtime-d0.md)
+alongside the [native immutable runtime selection](runtime-selection.md) from 0.5.0.
 It reuses the published renderer and preserves all compatibility-profile/style
 bytes. Its wheel/sdist are new artifacts, not replacements for published `0.4.0`.
 Coordinators that pin helper 0.4.0 must accept their own adoption; H1/H2 mapping
@@ -19,32 +20,37 @@ artifact hashes, descriptor, acceptance receipt and reused runtime.
 
 | Release tag | Compatibility profile | Mermaid CLI | PlantUML | Families | Gallery |
 | --- | --- | --- | --- | --- | --- |
-| `v0.5.0` | `mermaid-11.16.0-plantuml-1.2026.1` | 11.16.0 | 1.2026.1 | `benizar` | `docs/gallery/benizar/mermaid-11.16.0-plantuml-1.2026.1/manifest.csv` |
+| `v0.6.0` | `mermaid-11.16.0-plantuml-1.2026.1` | 11.16.0 | 1.2026.1 | `benizar` | `docs/gallery/benizar/mermaid-11.16.0-plantuml-1.2026.1/manifest.csv` |
 
 Badges for this release:
 
 ```markdown
-![release](https://img.shields.io/badge/release-v0.5.0-2a5db0)
+![release](https://img.shields.io/badge/release-v0.6.0-2a5db0)
 ![Mermaid CLI](https://img.shields.io/badge/Mermaid_CLI-11.16.0-ff3670)
 ![PlantUML](https://img.shields.io/badge/PlantUML-1.2026.1-2a5db0)
 ![family](https://img.shields.io/badge/family-benizar-2a5db0)
 ```
 
-The 0.5.0 release adds native runtime selection, provenance and freshness checks
+The 0.5.0 release added native runtime selection, provenance and freshness checks
 to the opt-in artifact producer introduced in 0.4.0. Engine versions, styles,
 gallery outputs and renderer image build inputs are unchanged. Historical 0.4.0
 bundles remain readable without their producing image being installed.
 
+0.6.0 adds live process identity, responsive busy/drain status and exact orphan
+recovery. Previous published packages/receipts remain unchanged. The real 0.5.0
+rollback point lacks the new live identity endpoint; its observation is partial
+and does not satisfy a second complete D0 live-identity release gate.
+
 ## Published artifacts
 
 The publication channel is the
-[GitHub release](https://github.com/dosquartsdedocs/diavisuals/releases/tag/v0.5.0),
+[GitHub release](https://github.com/dosquartsdedocs/diavisuals/releases/tag/v0.6.0),
 as for 0.4.0. A bare PyPI package name is not the release reference. Assets are:
 
 | Asset | Purpose |
 | --- | --- |
-| `diavisuals-0.5.0-py3-none-any.whl` | Installable CLI/MCP package, including all runtime style/tool/profile assets. |
-| `diavisuals-0.5.0.tar.gz` | Source distribution. |
+| `diavisuals-0.6.0-py3-none-any.whl` | Installable CLI/MCP package, including all runtime style/tool/profile assets. |
+| `diavisuals-0.6.0.tar.gz` | Source distribution. |
 | `diavisuals-render-v0.3.0-linux-amd64.tar.gz` | Docker archive of the unchanged, tested renderer. |
 | `mcp-factory-package.yml` | Exact installed native descriptor, also present in the wheel as `diavisuals/assets/mcp-factory.yml`. |
 | `acceptance.json` | Final-artifact acceptance receipt, tested identities and bounded compatibility points. |
@@ -65,12 +71,12 @@ not claimed patched; the release receipt preserves that scoped decision.
 Download into a new dedicated directory and verify before installation:
 
 ```bash
-gh release download v0.5.0 --repo dosquartsdedocs/diavisuals --dir /absolute/release-download
+gh release download v0.6.0 --repo dosquartsdedocs/diavisuals --dir /absolute/release-download
 # Run the remaining commands from /absolute/release-download.
 sha256sum --check SHA256SUMS
 docker image load --input diavisuals-render-v0.3.0-linux-amd64.tar.gz
 docker image inspect diavisuals/render:v0.3.0 --format '{{.Id}}'
-uv tool install './diavisuals-0.5.0-py3-none-any.whl[mcp]'
+uv tool install './diavisuals-0.6.0-py3-none-any.whl[mcp]'
 export DIAVISUALS_RUNTIME_IMAGE=sha256:5a6887b372a0e1c386a7b54981d11ae1910215baeb6a12dfd0706b3e85ef0846
 diavisuals renderer-status
 diavisuals factory-check

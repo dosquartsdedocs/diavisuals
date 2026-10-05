@@ -15,6 +15,7 @@ import subprocess
 import sys
 import tempfile
 import threading
+import time
 import uuid
 from collections.abc import Iterator
 from contextlib import contextmanager
@@ -24,6 +25,20 @@ import yaml
 
 from . import __version__
 from .runtime import RuntimeSelection, runtime_selection, validate_runtime_identity
+from .session import (
+    CURRENT_SESSION,
+    DAEMON_LABEL,
+    IMAGE_LABEL,
+    INSTANCE_LABEL,
+    JOB_LABEL,
+    OWNER_BOOT_LABEL,
+    OWNER_NAMESPACE_LABEL,
+    OWNER_PID_LABEL,
+    OWNER_START_LABEL,
+    OWNER_UID_LABEL,
+    owner_labels,
+    owner_state,
+)
 
 DEFAULT_RELEASE = f"v{__version__}"
 DEFAULT_COMPATIBILITY = "mermaid-11.16.0-plantuml-1.2026.1"
@@ -87,6 +102,8 @@ MAX_PROJECT_SCAN_ENTRIES = 100_000
 MAX_PROJECT_SCAN_DEPTH = 64
 MAX_COMPANION_ARTIFACT_BYTES = 16 * 1024 * 1024
 MCP_TOOL_NAMES = (
+    "server_identity",
+    "release_session",
     "style_inventory",
     "style_audit",
     "check_styles",
@@ -105,6 +122,7 @@ MCP_TOOL_NAMES = (
     "factory_manifest",
 )
 MCP_RESOURCE_URIS = (
+    "diavisuals://server/identity",
     "diavisuals://agent-guide",
     "diavisuals://styles",
     "diavisuals://compatibility",
@@ -498,7 +516,7 @@ def renderer_status(profile: str = DEFAULT_COMPATIBILITY, *, runtime: RuntimeSel
 
 def ensure_renderer_image(profile: str = DEFAULT_COMPATIBILITY, *, runtime: RuntimeSelection | None = None) -> dict[str, Any]:
     runtime = runtime if runtime is not None else runtime_selection()
-    if runtime.explicit:
+    if runtime.explicit or CURRENT_SESSION.get() is not None:
         return renderer_status(profile, runtime=runtime)
     root = repo_dir()
     renderer = renderer_profile(profile)
@@ -1012,6 +1030,7 @@ def build_renderer_command(
     container_name: str,
 ) -> list[str]:
     workspace_id = renderer_workspace_id(root)
+    labels = {**owner_labels(), JOB_LABEL: container_name, IMAGE_LABEL: renderer["image"]}
     return [
         "docker",
         "run",
@@ -1025,6 +1044,7 @@ def build_renderer_command(
         RENDERER_CONTAINER_LABEL,
         "--label",
         f"{RENDERER_WORKSPACE_LABEL}={workspace_id}",
+        *[argument for key, value in labels.items() for argument in ("--label", f"{key}={value}")],
         "--network",
         "none",
         "--read-only",
@@ -1071,23 +1091,54 @@ def build_renderer_command(
     ]
 
 
-def _remove_renderer_container(container_name: str) -> dict[str, Any]:
-    remove = run(["docker", "container", "rm", "--force", container_name], timeout=30)
-    remove_error = str(remove.get("stderr") or "")
-    if remove["returncode"] == 0 or "No such container" in remove_error:
-        return {"ok": True, "container": container_name, "remove": remove}
+def renderer_daemon_identity() -> dict[str, Any]:
+    result = run(["docker", "info", "--format", "{{.ID}}"], timeout=10)
+    value = str(result["stdout"]).strip()
+    known = result["returncode"] == 0 and re.fullmatch(r"[A-Za-z0-9:\-]{1,128}", value) is not None
+    return {"ok": known, "id": value if known else None, "state": "observed" if known else "unknown"}
 
-    inspect = run(["docker", "container", "inspect", container_name], timeout=30)
-    inspect_error = str(inspect.get("stderr") or "")
-    absent = inspect["returncode"] != 0 and (
-        "No such object" in inspect_error or "No such container" in inspect_error
-    )
-    return {
-        "ok": absent,
-        "container": container_name,
-        "remove": remove,
-        "inspect": inspect,
-    }
+
+def inspect_renderer_container(reference: str) -> dict[str, Any]:
+    inspected = run(["docker", "container", "inspect", "--format",
+                     '{"Id":{{json .Id}},"Name":{{json .Name}},"Image":{{json .Image}},"Labels":{{json .Config.Labels}},"Running":{{json .State.Running}}}',
+                     reference], timeout=10)
+    if inspected["returncode"]:
+        absent = "No such object" in inspected["stderr"] or "No such container" in inspected["stderr"]
+        return {"ok": absent, "absent": absent, "state": "absent" if absent else "unknown"}
+    try:
+        info = json.loads(inspected["stdout"])
+        if not isinstance(info, dict) or not re.fullmatch(r"[0-9a-f]{64}", str(info.get("Id", ""))):
+            raise ValueError("invalid container identity")
+        if re.fullmatch(r"[0-9a-f]{64}", reference) and info["Id"] != reference:
+            raise ValueError("container observation differs from the exact requested ID")
+        if (not isinstance(info.get("Labels"), dict) or not isinstance(info.get("Name"), str)
+                or type(info.get("Running")) is not bool or not DOCKER_IMAGE_ID_RE.fullmatch(str(info.get("Image", "")))):
+            raise ValueError("invalid container ownership")
+    except (ValueError, TypeError):
+        return {"ok": False, "absent": False, "state": "unknown"}
+    return {"ok": True, "absent": False, "state": "running" if info["Running"] else "stopped", "info": info}
+
+
+def _remove_renderer_container(container_name: str, *, expected_labels: dict[str, str] | None = None,
+                               container_id: str | None = None) -> dict[str, Any]:
+    if not expected_labels or not expected_labels.get(INSTANCE_LABEL) or expected_labels.get(JOB_LABEL) != container_name:
+        return {"ok": False, "container": container_name, "error": "unknown container ownership; refusing removal"}
+    daemon = renderer_daemon_identity()
+    if not daemon["ok"] or daemon["id"] != expected_labels.get(DAEMON_LABEL):
+        return {"ok": False, "container": container_name, "error": "Docker daemon ownership is unknown or changed"}
+    observed = inspect_renderer_container(container_id or container_name)
+    if not observed["ok"] or observed["absent"]:
+        return {**observed, "container": container_name}
+    info = observed["info"]
+    if info["Name"] != f"/{container_name}" or any(info["Labels"].get(key) != value for key, value in expected_labels.items()) or info["Image"] != expected_labels.get(IMAGE_LABEL):
+        return {"ok": False, "container": container_name, "error": "container ownership/image mismatch; refusing removal"}
+    # Never remove by a reusable name after inspection. Confirm exact-ID absence
+    # even when Docker rm returned zero; acknowledgement is not termination proof.
+    identity = info["Id"]
+    removed = run(["docker", "container", "rm", "--force", identity], timeout=30)
+    after = inspect_renderer_container(identity)
+    return {"ok": after["ok"] and after["absent"], "container": container_name,
+            "container_id": identity, "remove_returncode": removed["returncode"], "absence_verified": after["absent"]}
 
 
 def _run_renderer(
@@ -1099,6 +1150,43 @@ def _run_renderer(
 ) -> dict[str, Any]:
     stdout_buffer = bytearray()
     stderr_buffer = bytearray()
+    labels = dict(command[index + 1].split("=", 1) for index, value in enumerate(command) if value == "--label")
+    cidfile = pathlib.Path(command[command.index("--cidfile") + 1]) if "--cidfile" in command else None
+    container_id = None
+    session = CURRENT_SESSION.get()
+    if labels:
+        daemon = renderer_daemon_identity()
+        if not daemon["ok"] or (session and not session.observe_daemon(daemon["id"])):
+            return {"returncode": 1, "stdout": "", "stderr": "Docker daemon identity is unknown or changed", "timed_out": False,
+                    "cleanup": {"ok": True, "no_container_started": True}, "command": command}
+        if labels.get(DAEMON_LABEL) not in {None, daemon["id"]}:
+            return {"returncode": 1, "stdout": "", "stderr": "prepared command belongs to another Docker daemon", "timed_out": False,
+                    "cleanup": {"ok": True, "no_container_started": True}, "command": command}
+        if DAEMON_LABEL not in labels:
+            command[2:2] = ["--label", f"{DAEMON_LABEL}={daemon['id']}"]
+        labels[DAEMON_LABEL] = daemon["id"]
+        if session:
+            session.job_started(container_name, labels.get(IMAGE_LABEL, "unknown"), daemon["id"])
+
+    def observe_id() -> None:
+        nonlocal container_id
+        if cidfile is not None and container_id is None:
+            try:
+                from .session import _read
+                value = _read(cidfile, 128).decode().strip()
+                if re.fullmatch(r"[0-9a-f]{64}", value):
+                    container_id = value
+                    if session:
+                        session.job_observed(container_name, value)
+            except (OSError, ValueError, UnicodeError):
+                pass
+
+    def cleanup_owned() -> dict[str, Any]:
+        observe_id()
+        result = _remove_renderer_container(container_name, expected_labels=labels, container_id=container_id) if labels else _remove_renderer_container(container_name)
+        if session and labels:
+            session.job_finished(container_name, result)
+        return result
 
     def drain(stream: Any, buffer: bytearray) -> None:
         try:
@@ -1120,7 +1208,7 @@ def _run_renderer(
             stderr=subprocess.PIPE,
         )
     except OSError as exc:
-        cleanup = _remove_renderer_container(container_name)
+        cleanup = cleanup_owned()
         return {
             "command": command,
             "returncode": 127,
@@ -1142,7 +1230,16 @@ def _run_renderer(
     timed_out = False
     cleanup: dict[str, Any]
     try:
-        process.wait(timeout=timeout)
+        deadline = time.monotonic() + timeout
+        while process.poll() is None:
+            observe_id()
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise subprocess.TimeoutExpired(command, timeout)
+            try:
+                process.wait(timeout=min(0.05, remaining))
+            except subprocess.TimeoutExpired:
+                continue
     except subprocess.TimeoutExpired:
         timed_out = True
         try:
@@ -1151,7 +1248,7 @@ def _run_renderer(
             pass
         process.wait()
     finally:
-        cleanup = _remove_renderer_container(container_name)
+        cleanup = cleanup_owned()
         for thread in threads:
             thread.join(timeout=5)
 
@@ -1169,6 +1266,9 @@ def _run_renderer(
         "stderr": stderr,
         "timed_out": timed_out,
         "cleanup": cleanup,
+        "ownership": {"instance_id": labels.get(INSTANCE_LABEL), "job_id": labels.get(JOB_LABEL),
+                      "container_id": container_id, "daemon_id": labels.get(DAEMON_LABEL),
+                      "controller_pid": labels.get(OWNER_PID_LABEL), "controller_pid_namespace": labels.get(OWNER_NAMESPACE_LABEL)},
     }
 
 
@@ -2281,8 +2381,78 @@ def down_factory(project_root: str | pathlib.Path = ".") -> dict[str, Any]:
     }
 
 
+def session_containers(project_root: str | pathlib.Path, *, owner: dict[str, Any], daemon_id: str,
+                       release_ids: list[str] | None = None) -> dict[str, Any]:
+    """Inspect/recover exact orphan jobs; never stop a live or unknown owner.
+
+    The caller supplies the identity observed on the original MCP connection.
+    Namespace/boot/start checks prevent comparing an inner PID with a host PID.
+    This is separate from the legacy, explicitly workspace-wide force-down.
+    """
+    root = pathlib.Path(project_root).expanduser().resolve(strict=True)
+    if not root.is_dir() or not re.fullmatch(r"[0-9a-f]{32}", str(owner.get("instance_id", ""))):
+        raise ValueError("exact consumer and observed instance identity are required")
+    if owner.get("uid") != os.geteuid():
+        raise ValueError("session owner UID is not the observer UID")
+    state = owner_state(owner)
+    response = {"ok": False, "scope": "exact-session-containers", "instance_id": owner["instance_id"],
+                "owner_state": state, "process_release_verified": state == "dead", "resources_released": False,
+                "state": "unknown", "containers": []}
+    daemon = renderer_daemon_identity()
+    if not daemon["ok"] or daemon["id"] != daemon_id:
+        return {**response, "error": "Docker daemon identity is unknown or differs from the observed session"}
+    expected = {"io.context.mcp-factory": "diavisuals", RENDERER_WORKSPACE_LABEL: renderer_workspace_id(root),
+                INSTANCE_LABEL: owner["instance_id"], OWNER_PID_LABEL: str(owner.get("pid")),
+                OWNER_START_LABEL: str(owner.get("start_ticks")), OWNER_NAMESPACE_LABEL: str(owner.get("pid_namespace")),
+                OWNER_BOOT_LABEL: str(owner.get("boot_id")), OWNER_UID_LABEL: str(owner["uid"]), DAEMON_LABEL: daemon_id}
+    command = ["docker", "container", "ls", "--all", "--quiet", "--no-trunc",
+               "--filter", f"label={RENDERER_CONTAINER_LABEL}",
+               "--filter", f"label={RENDERER_WORKSPACE_LABEL}={renderer_workspace_id(root)}",
+               "--filter", f"label={INSTANCE_LABEL}={owner['instance_id']}"]
+    listed = run(command, timeout=10)
+    ids = listed["stdout"].split()
+    if listed["returncode"] or len(ids) > 16 or any(not re.fullmatch(r"[0-9a-f]{64}", identity) for identity in ids):
+        return {**response, "error": "container inventory is unavailable, invalid or exceeds its bound"}
+    verified = {}
+    for identity in ids:
+        observed = inspect_renderer_container(identity)
+        if observed["absent"]:
+            continue
+        if not observed["ok"]:
+            return {**response, "error": "container ownership is unknown"}
+        info = observed["info"]
+        name = info["Name"].removeprefix("/")
+        if (any(info["Labels"].get(key) != value for key, value in expected.items())
+                or info["Labels"].get(JOB_LABEL) != name or not name.startswith("diavisuals-")
+                or not DOCKER_IMAGE_ID_RE.fullmatch(str(info["Image"])) or info["Labels"].get(IMAGE_LABEL) != info["Image"]):
+            return {**response, "error": "container does not match the observed owner/job/image tuple"}
+        verified[identity] = info
+    response["containers"] = [{"id": key, "name": info["Name"].removeprefix("/"), "image_id": info["Image"],
+                               "state": "running" if info["Running"] else "stopped"} for key, info in verified.items()]
+    response["state"] = "unknown" if state == "unknown" else "busy" if verified else "connected" if state == "alive" else "stopped"
+    if release_ids is None:
+        return {**response, "ok": True, "resources_released": state == "dead" and not verified}
+    if state != "dead":
+        return {**response, "error": "owner is alive/busy or in an unknown namespace; no removal authorized"}
+    if not release_ids or len(release_ids) > 16 or len(set(release_ids)) != len(release_ids) or any(not re.fullmatch(r"[0-9a-f]{64}", identity) for identity in release_ids):
+        raise ValueError("release requires a bounded list of distinct exact observed container IDs")
+    for identity in release_ids:
+        if identity not in verified:
+            absent = inspect_renderer_container(identity)
+            if not absent["ok"] or not absent["absent"]:
+                return {**response, "error": "requested container is foreign or its ownership is unknown"}
+    cleanups = []
+    for identity in release_ids:
+        if identity in verified:
+            info = verified[identity]
+            cleanups.append(_remove_renderer_container(info["Name"].removeprefix("/"), container_id=identity,
+                                                       expected_labels={**expected, JOB_LABEL: info["Name"].removeprefix("/"), IMAGE_LABEL: info["Image"]}))
+    after = session_containers(root, owner=owner, daemon_id=daemon_id)
+    return {**after, "ok": after["ok"] and all(item["ok"] for item in cleanups), "cleanup": cleanups}
+
+
 def mcp_stdio_command() -> list[str]:
-    return [sys.executable, "-m", "diavisuals.cli", "mcp", "serve"]
+    return [sys.executable, str(pathlib.Path(__file__).resolve().parent / "stdio.py")]
 
 
 def client_config(project: str = "${workspaceFolder}", command: str = "", *, runtime: RuntimeSelection | None = None) -> dict[str, Any]:

@@ -592,7 +592,8 @@ def export_diagram_bundle(
                 workspace.write_new(f"{staged}/bundle.json", manifest)
                 sha256 = digest(manifest)
                 bundle = _publish(workspace, staged, bundle_id, sha256)
-                return {"ok": True, "bundle": bundle, "engine": engine, "producer": actor, "runtime": effective_runtime, "opt_in": True}
+                return {"ok": True, "bundle": bundle, "engine": engine, "producer": actor, "runtime": effective_runtime,
+                        "execution": completed.get("ownership"), "opt_in": True}
             except (OSError, ValueError) as exc:
                 # Never delete a partially written or sealed job, even after rename/fsync failure.
                 return {"ok": False, "error": str(exc), "recovery": {"path": f"{staged}/bundle.json", "sha256": sha256 or None,

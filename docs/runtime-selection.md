@@ -59,6 +59,11 @@ not offer a per-call switch to a different environment. CLI-generated client
 snippets include the explicit selection, as does the `mcp-smoke` subprocess.
 No active client registration is changed merely by generating a snippet.
 
+Since 0.6.0, normal MCP work is preparation-free even with the default profile:
+an absent renderer fails instead of building. Standalone CLI preparation retains
+the behavior below. Live serving identity and safe per-instance shutdown are
+defined by the [D0 native profile](native-runtime-d0.md).
+
 ## Preparation and failure behavior
 
 For an explicit selection, `renderer-status`, `ensure-renderer` and even

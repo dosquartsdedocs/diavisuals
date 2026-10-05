@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.6.0 - 2026-10-05
+
+- Add bounded live MCP server identity and matching resource, including process instance/PID namespace, loaded code/version, startup versus current disk evidence, consumer binding and selected/observed runtime.
+- Add responsive busy/drain observation, per-instance/job ownership and exact-ID, namespace-aware orphan inspection/recovery; preserve legacy explicit workspace-wide force-down separately.
+- Make normal source stdio/status launch require explicit preparation and bind generated stdio entry points to the owned package, avoiding consumer-cwd imports.
+- Reuse the published renderer/profile bytes and preserve earlier bundles/releases. Record actual 0.5.0/0.6.0 coexistence separately from the unavailable second full D0 identity point.
+
 ## 0.5.0 - 2026-09-30
 
 - Add a native, process-bound runtime selection independent of compatibility profile bytes, with expected image ID/repository-digest validation and an inspect-only explicit preparation path.

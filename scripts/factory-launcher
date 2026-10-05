@@ -47,6 +47,13 @@ bootstrap() {
   uv --directory "${FACTORY_ROOT}" sync --locked --extra dev --extra mcp --quiet
 }
 
+require_prepared() {
+  [[ -x "$CLI" ]] || {
+    printf 'Prepared diavisuals CLI is missing; run make mcp-build explicitly first\n' >&2
+    exit 2
+  }
+}
+
 case "${OPERATION}" in
   build)
     bootstrap
@@ -58,7 +65,7 @@ case "${OPERATION}" in
     exec "${CLI}" --project "${PROJECT_ROOT}" init "$@"
     ;;
   check)
-    bootstrap
+    require_prepared
     exec "${CLI}" lifecycle-check --command "${CLI}" "$@"
     ;;
   tests)
@@ -70,7 +77,7 @@ case "${OPERATION}" in
     exec make --no-print-directory -C "${FACTORY_ROOT}" mcp-smoke
     ;;
   down)
-    bootstrap
+    require_prepared
     exec "${CLI}" --project "${PROJECT_ROOT}" down "$@"
     ;;
   update)
@@ -78,55 +85,55 @@ case "${OPERATION}" in
     exec "${CLI}" --project "${PROJECT_ROOT}" update "$@"
     ;;
   release-status)
-    bootstrap
+    require_prepared
     exec "${CLI}" --project "${PROJECT_ROOT}" release-status "$@"
     ;;
   install-check)
-    bootstrap
+    require_prepared
     exec "${CLI}" --project "${PROJECT_ROOT}" install-check --command "${CLI}" "$@"
     ;;
   factory-check)
-    bootstrap
+    require_prepared
     exec "${CLI}" --project "${PROJECT_ROOT}" factory-check "$@"
     ;;
   install-codex-mcp)
-    bootstrap
+    require_prepared
     exec "${CLI}" --project "${PROJECT_ROOT}" install-codex-mcp --project-root "${PROJECT_ROOT}" --command "${CLI}" "$@"
     ;;
   serve)
-    bootstrap
+    require_prepared
     exec "${CLI}" --project "${PROJECT_ROOT}" mcp serve
     ;;
   client-config)
-    bootstrap
+    require_prepared
     exec "${CLI}" --project "${PROJECT_ROOT}" mcp client-config --command "${CLI}" "$@"
     ;;
   manifest)
-    bootstrap
+    require_prepared
     exec "${CLI}" --project "${PROJECT_ROOT}" factory-manifest "$@"
     ;;
   styles)
-    bootstrap
+    require_prepared
     exec "${CLI}" --project "${PROJECT_ROOT}" style-inventory "$@"
     ;;
   audit)
-    bootstrap
+    require_prepared
     exec "${CLI}" --project "${PROJECT_ROOT}" style-audit "$@"
     ;;
   project-check)
-    bootstrap
+    require_prepared
     exec "${CLI}" --project "${PROJECT_ROOT}" project-check "$@"
     ;;
   render)
-    bootstrap
+    require_prepared
     exec "${CLI}" --project "${PROJECT_ROOT}" render-diagram "$@"
     ;;
   render-text)
-    bootstrap
+    require_prepared
     exec "${CLI}" --project "${PROJECT_ROOT}" render-diagram-text "$@"
     ;;
   export-bundle)
-    bootstrap
+    require_prepared
     exec "${CLI}" --project "${PROJECT_ROOT}" export-diagram-bundle "$@"
     ;;
   *)

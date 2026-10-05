@@ -57,6 +57,7 @@ tests-mcp: mcp-env
 	@$(CLI) mcp-smoke >/dev/null
 	@DIAVISUALS_MCP_SMOKE=1 DIAVISUALS_MCP_FACTORY_ROOT="$${PWD}" $(PYTHON) -m unittest tests.test_registry.RegistryTest.test_mcp_stdio_smoke_when_enabled
 	@DIAVISUALS_MCP_SMOKE=1 $(PYTHON) -m unittest tests.test_artifacts_runtime.ArtifactMCPTest
+	@DIAVISUALS_MCP_SMOKE=1 $(PYTHON) -m unittest tests.test_session_mcp
 
 tests-install: mcp-env
 	@rm -rf .tmp/install-wheel .tmp/install-sdist dist
@@ -72,7 +73,7 @@ tests-install: mcp-env
 	test -f "$$consumer/.unaltraweb/receipts/diavisuals.json"; \
 	.tmp/install-wheel/bin/diavisuals factory-check >/dev/null; \
 	.tmp/install-wheel/bin/diavisuals mcp-smoke >/dev/null
-	@DIAVISUALS_INSTALLED=1 DIAVISUALS_MCP_SMOKE=1 .tmp/install-wheel/bin/python -m unittest tests.test_artifacts tests.test_artifacts_runtime tests.test_runtime_selection tests.test_runtime_selection_docker
+	@DIAVISUALS_INSTALLED=1 DIAVISUALS_MCP_SMOKE=1 .tmp/install-wheel/bin/python -m unittest tests.test_artifacts tests.test_artifacts_runtime tests.test_runtime_selection tests.test_runtime_selection_docker tests.test_session tests.test_session_mcp tests.test_d0_acceptance
 	@$(UV) venv --python 3.10 .tmp/install-sdist >/dev/null
 	@$(UV) pip install --python .tmp/install-sdist/bin/python dist/*.tar.gz 'mcp==1.29.0' >/dev/null
 	@set -euo pipefail; consumer="$$(mktemp -d)"; trap 'rm -rf "$$consumer"' EXIT; \
@@ -84,7 +85,7 @@ tests-install: mcp-env
 	test -f "$$consumer/.unaltraweb/receipts/diavisuals.json"; \
 	.tmp/install-sdist/bin/diavisuals factory-check >/dev/null; \
 	.tmp/install-sdist/bin/diavisuals mcp-smoke >/dev/null
-	@DIAVISUALS_INSTALLED=1 DIAVISUALS_MCP_SMOKE=1 .tmp/install-sdist/bin/python -m unittest tests.test_artifacts tests.test_artifacts_runtime tests.test_runtime_selection tests.test_runtime_selection_docker
+	@DIAVISUALS_INSTALLED=1 DIAVISUALS_MCP_SMOKE=1 .tmp/install-sdist/bin/python -m unittest tests.test_artifacts tests.test_artifacts_runtime tests.test_runtime_selection tests.test_runtime_selection_docker tests.test_session tests.test_session_mcp tests.test_d0_acceptance
 
 docker-build-renderer: mcp-env
 	@$(CLI) build-renderer --profile "$${COMPAT_PROFILE}" >/dev/null
@@ -99,24 +100,24 @@ mcp-build: docker-ensure-renderer mcp-env
 mcp-init: mcp-env
 	@$(CLI) --project "$${PROJECT}" init >/dev/null
 
-mcp-check: mcp-env check
+mcp-check: check
 	@$(CLI) lifecycle-check --command "$${PWD}/$(CLI)" >/dev/null
 
 docker-test: docker-ensure-renderer
-	@DIAVISUALS_DOCKER_SMOKE=1 DIAVISUALS_MCP_SMOKE=1 $(PYTHON) -m unittest tests.test_docker_smoke tests.test_artifacts_runtime tests.test_runtime_selection_docker
+	@DIAVISUALS_DOCKER_SMOKE=1 DIAVISUALS_MCP_SMOKE=1 $(PYTHON) -m unittest tests.test_docker_smoke tests.test_artifacts_runtime tests.test_runtime_selection_docker tests.test_d0_acceptance
 
 mcp-smoke: tests-mcp docker-test
 
-mcp-down: mcp-env
+mcp-down:
 	@$(CLI) --project "$${PROJECT}" down >/dev/null
 
-mcp-stdio: mcp-env
+mcp-stdio:
 	@exec bash scripts/mcp-stdio-launcher "$${PWD}/$(CLI)"
 
-project-check: mcp-env
+project-check:
 	@$(CLI) --project "$${PROJECT}" project-check
 
-render-diagram: mcp-env
+render-diagram:
 	@test -n "$${INPUT}" || (printf 'Usage: make render-diagram INPUT=<diagram> OUTPUT=<output>\n' >&2; exit 2)
 	@test -n "$${OUTPUT}" || (printf 'Usage: make render-diagram INPUT=<diagram> OUTPUT=<output>\n' >&2; exit 2)
 	@$(CLI) --project "$${PROJECT}" render-diagram --engine "$${ENGINE}" --family "$${FAMILY}" --profile "$${COMPAT_PROFILE}" --format "$${FORMAT}" "$${INPUT}" "$${OUTPUT}"

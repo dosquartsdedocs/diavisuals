@@ -14,6 +14,43 @@ REPO_ROOT = pathlib.Path(__file__).resolve().parents[1]
 
 
 class FactoryStartupTest(unittest.TestCase):
+    def test_normal_launch_requires_preparation_and_never_runs_uv(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = pathlib.Path(temporary)
+            factory = root / "factory"
+            scripts = factory / "scripts"
+            scripts.mkdir(parents=True)
+            shutil.copyfile(REPO_ROOT / "Makefile", factory / "Makefile")
+            for name in ("factory-launcher", "mcp-stdio-launcher"):
+                shutil.copyfile(REPO_ROOT / "scripts" / name, scripts / name)
+            consumer = root / "consumer"
+            consumer.mkdir()
+            binary = root / "bin"
+            binary.mkdir()
+            uv = binary / "uv"
+            marker = root / "uv-was-run"
+            uv.write_text(f'#!/bin/sh\ntouch "{marker}"\nexit 77\n')
+            uv.chmod(0o700)
+            env = {**os.environ, "PATH": f"{binary}:{os.environ['PATH']}", "MCP_CONSUMER_WORKSPACE": str(consumer)}
+            commands = [
+                ["make", "--no-print-directory", "-C", str(factory), "mcp-stdio"],
+                ["bash", str(scripts / "factory-launcher"), "serve", str(consumer)],
+                ["bash", str(scripts / "factory-launcher"), "manifest"],
+            ]
+            for command in commands:
+                result = subprocess.run(command, env=env, capture_output=True, text=True, check=False)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn("run make mcp-build explicitly", result.stderr)
+            cli = factory / ".venv/bin/diavisuals"
+            cli.parent.mkdir(parents=True)
+            cli.write_text("#!/bin/sh\nexit 0\n")
+            cli.chmod(0o700)
+            for command in commands:
+                result = subprocess.run(command, env=env, capture_output=True, text=True, check=False)
+                self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertFalse(marker.exists())
+            self.assertEqual(list(consumer.iterdir()), [])
+
     def test_stdio_launcher_reports_unresolvable_workspace(self) -> None:
         missing = REPO_ROOT / "missing-consumer-workspace"
         completed = subprocess.run(
