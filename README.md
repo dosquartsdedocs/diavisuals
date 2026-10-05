@@ -1,6 +1,6 @@
 # diavisuals
 
-![release](https://img.shields.io/badge/release-v0.5.0-2a5db0) ![Mermaid CLI](https://img.shields.io/badge/Mermaid_CLI-11.16.0-ff3670) ![PlantUML](https://img.shields.io/badge/PlantUML-1.2026.1-2a5db0) ![family](https://img.shields.io/badge/family-benizar-2a5db0)
+![release](https://img.shields.io/badge/release-v0.6.0-2a5db0) ![Mermaid CLI](https://img.shields.io/badge/Mermaid_CLI-11.16.0-ff3670) ![PlantUML](https://img.shields.io/badge/PlantUML-1.2026.1-2a5db0) ![family](https://img.shields.io/badge/family-benizar-2a5db0)
 
 `diavisuals` centralizes shared Mermaid and PlantUML visual styles and the
 Docker renderer used by dosquartsdedocs projects. The goal is to stop copying
@@ -40,7 +40,7 @@ That split matters because a quadrant chart, a sequence diagram, and a treemap n
 Install the package and MCP dependencies with `uv`:
 
 ```bash
-uv tool install 'diavisuals[mcp] @ https://github.com/dosquartsdedocs/diavisuals/releases/download/v0.5.0/diavisuals-0.5.0-py3-none-any.whl'
+uv tool install 'diavisuals[mcp] @ https://github.com/dosquartsdedocs/diavisuals/releases/download/v0.6.0/diavisuals-0.6.0-py3-none-any.whl'
 ```
 
 For released-producer acceptance, first load the checksum-verified renderer
@@ -57,6 +57,10 @@ use `--runtime-image` / `--runtime-expected-id` or `DIAVISUALS_RUNTIME_*`.
 Explicit selection is inspect-only and fails closed. See
 [native renderer selection](docs/runtime-selection.md) for the CLI/MCP contract,
 cache/freshness rules and examples.
+
+For live serving-process identity, busy/drain behavior and exact orphan recovery,
+see the [D0 native stdio mapping](docs/native-runtime-d0.md). Normal launch/status
+requires explicit preparation; a renderer-only status is not live MCP identity.
 
 Force-remove active renderer containers for one selected consumer workspace
 without removing images, volumes, other workspaces, or unrelated containers:

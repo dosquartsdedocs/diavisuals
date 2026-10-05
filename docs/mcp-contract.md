@@ -30,6 +30,7 @@ and cache/freshness behavior. Published 0.4.0 remains the prior native baseline.
 
 | Resource | Description |
 | --- | --- |
+| `diavisuals://server/identity` | Bounded identity of the live serving process, agreeing with `server_identity`. |
 | `diavisuals://agent-guide` | Repository guidance for visual-style work. |
 | `diavisuals://styles` | Style family inventory. |
 | `diavisuals://compatibility` | Compatibility profile inventory. |
@@ -42,6 +43,8 @@ and cache/freshness behavior. Published 0.4.0 remains the prior native baseline.
 
 | Tool | Description |
 | --- | --- |
+| `server_identity` | Observe this serving instance, loaded code/disk drift, fixed binding, selected/observed workers and lifecycle. |
+| `release_session` | Drain this idle stdio instance by expected ID; refuse busy/unknown state. Caller closes and waits for process exit. |
 | `style_inventory` | List style families, overrides, examples, and tokens. |
 | `style_audit` | Validate tokens, examples, compatibility, and rendered gallery outputs for one family. |
 | `check_styles` | Validate a style family and compatibility profile. |
@@ -62,6 +65,10 @@ and cache/freshness behavior. Published 0.4.0 remains the prior native baseline.
 Tool payloads with `ok: false` are returned as MCP tool errors (`isError:
 true`) rather than successful protocol results. The JSON payload is available
 in both text content and `structuredContent` for clients that need diagnostics.
+
+The [D0 native profile](native-runtime-d0.md) defines namespace-aware process/job
+ownership, preparation-free normal launch/identity, EOF/busy/crash behavior and
+the distinction between per-instance release and explicit workspace-wide `down`.
 
 The opt-in artifact tools share the CLI implementation and work in installed
 packages. See [artifact handoff](artifact-handoff.md) for parameters, strict

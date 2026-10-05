@@ -38,11 +38,13 @@ from .registry import (
     install_check,
     json_dumps,
     lifecycle_check,
+    mcp_stdio_command,
     project_check,
     release_status,
     render_diagram,
     render_diagram_text,
     renderer_status,
+    session_containers,
     style_audit,
     style_inventory,
     submodule_plan,
@@ -179,19 +181,13 @@ def cmd_mcp_smoke(args: argparse.Namespace) -> int:
         from mcp import ClientSession, StdioServerParameters
         from mcp.client.stdio import stdio_client
 
+        command, *arguments = mcp_stdio_command()
         parameters = StdioServerParameters(
-            command=sys.executable,
-            args=[
-                "-m",
-                "diavisuals.cli",
-                "--project",
-                str(pathlib.Path(args.project).expanduser().resolve()),
-                "mcp",
-                "serve",
-            ],
+            command=command,
+            args=arguments,
             env={**{key: value for key, value in os.environ.items() if key not in {
                 "DIAVISUALS_RUNTIME_IMAGE", "DIAVISUALS_RUNTIME_EXPECTED_ID",
-            }}, **args.runtime.environment()},
+            }}, **args.runtime.environment(), "MCP_CONSUMER_WORKSPACE": str(pathlib.Path(args.project).expanduser().resolve())},
         )
         async with stdio_client(parameters) as (read, write):
             async with ClientSession(read, write) as session:
@@ -245,6 +241,16 @@ def cmd_renderer_status(args: argparse.Namespace) -> int:
     payload = renderer_status(args.profile, runtime=args.runtime)
     print_payload(payload)
     return 0 if payload.get("ok") else 1
+
+
+def cmd_session_containers(args: argparse.Namespace) -> int:
+    payload = session_containers(args.project, owner={"instance_id": args.instance_id, "pid": args.pid,
+                                 "start_ticks": args.start_ticks, "boot_id": args.boot_id,
+                                 "pid_namespace": args.pid_namespace, "uid": os.geteuid()},
+                                 daemon_id=args.daemon_id,
+                                 release_ids=args.container_id if args.command == "release-session" else None)
+    print_payload(payload)
+    return 0 if payload["ok"] else 1
 
 
 def cmd_render_diagram(args: argparse.Namespace) -> int:
@@ -469,6 +475,18 @@ def build_parser() -> argparse.ArgumentParser:
     status_parser = subcommands.add_parser("renderer-status", help="Inspect the selected local renderer without building or pulling")
     status_parser.add_argument("--profile", default=DEFAULT_COMPATIBILITY)
     status_parser.set_defaults(func=cmd_renderer_status)
+
+    for operation in ("inspect-session", "release-session"):
+        session_parser = subcommands.add_parser(operation, help="Inspect or recover exact orphan session containers using observed native process identity")
+        session_parser.add_argument("--instance-id", required=True)
+        session_parser.add_argument("--pid", type=int, required=True)
+        session_parser.add_argument("--start-ticks", required=True)
+        session_parser.add_argument("--boot-id", required=True)
+        session_parser.add_argument("--pid-namespace", required=True)
+        session_parser.add_argument("--daemon-id", required=True)
+        if operation == "release-session":
+            session_parser.add_argument("--container-id", action="append", required=True)
+        session_parser.set_defaults(func=cmd_session_containers)
 
     render_parser = subcommands.add_parser("render-diagram", help="Render one styled Mermaid or PlantUML diagram through Docker")
     render_parser.add_argument("input")

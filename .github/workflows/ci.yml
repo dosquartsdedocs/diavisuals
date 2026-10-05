@@ -54,6 +54,9 @@ jobs:
   docker:
     runs-on: ubuntu-latest
     timeout-minutes: 45
+    env:
+      DIAVISUALS_PREVIOUS_PYTHON: ${{ github.workspace }}/.tmp/previous-0.5.0/bin/python
+      DIAVISUALS_PREVIOUS_WHEEL: ${{ github.workspace }}/.tmp/previous-assets/diavisuals-0.5.0-py3-none-any.whl
     steps:
       - uses: actions/checkout@v4
         with:
@@ -65,6 +68,16 @@ jobs:
           enable-cache: true
       - run: uv sync --locked --extra dev --extra mcp
       - run: docker info
+      - name: Prepare the actual previous published control plane
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release download v0.5.0 --repo "$GITHUB_REPOSITORY" \
+            --pattern diavisuals-0.5.0-py3-none-any.whl --dir .tmp/previous-assets
+          printf '%s  %s\n' f52e20f20f1fb3a2418f07adb8d6a68a5567d0c321fb7c0ccc0f4db04917b96b \
+            "$DIAVISUALS_PREVIOUS_WHEEL" | sha256sum --check
+          uv venv --python 3.12 .tmp/previous-0.5.0
+          uv pip install --python "$DIAVISUALS_PREVIOUS_PYTHON" "$DIAVISUALS_PREVIOUS_WHEEL[mcp]"
       - name: Reuse the verified published renderer
         env:
           GH_TOKEN: ${{ github.token }}

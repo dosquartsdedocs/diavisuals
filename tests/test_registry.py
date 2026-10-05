@@ -461,14 +461,14 @@ class RegistryTest(unittest.TestCase):
         server = config["mcpServers"]["diavisuals"]
 
         self.assertEqual(server["command"], sys.executable)
-        self.assertEqual(server["args"], ["-m", "diavisuals.cli", "mcp", "serve"])
+        self.assertEqual(server["args"], [str(Path(registry.__file__).parent / "stdio.py")])
         self.assertEqual(server["env"], {"MCP_CONSUMER_WORKSPACE": "/tmp/project"})
 
         vscode_server = registry.vscode_client_config("/tmp/project")["servers"]["diavisuals"]
         self.assertEqual(vscode_server["command"], sys.executable)
-        self.assertEqual(vscode_server["args"], ["-m", "diavisuals.cli", "mcp", "serve"])
+        self.assertEqual(vscode_server["args"], [str(Path(registry.__file__).parent / "stdio.py")])
         self.assertEqual(vscode_server["env"], {"MCP_CONSUMER_WORKSPACE": "/tmp/project"})
-        self.assertEqual(registry.mcp_stdio_command(), [sys.executable, "-m", "diavisuals.cli", "mcp", "serve"])
+        self.assertEqual(registry.mcp_stdio_command(), [sys.executable, str(Path(registry.__file__).parent / "stdio.py")])
 
     def test_cli_scopes_the_consumer_environment_to_mcp_serve(self) -> None:
         project = "/tmp/consumer $value $(touch never) `touch never-either`"

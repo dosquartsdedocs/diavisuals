@@ -8,7 +8,7 @@ on:
       tag:
         description: Published release tag
         required: true
-        default: v0.5.0
+        default: v0.6.0
         type: string
 
 permissions:
@@ -30,6 +30,8 @@ jobs:
       RELEASE_TAG: ${{ github.event.release.tag_name || inputs.tag }}
       GH_TOKEN: ${{ github.token }}
       DISTRIBUTION: ${{ matrix.distribution }}
+      DIAVISUALS_PREVIOUS_PYTHON: ${{ github.workspace }}/.tmp/previous-0.5.0/bin/python
+      DIAVISUALS_PREVIOUS_WHEEL: ${{ github.workspace }}/.tmp/previous-assets/diavisuals-0.5.0-py3-none-any.whl
     steps:
       - uses: actions/checkout@v4
         with:
@@ -98,4 +100,23 @@ jobs:
           DIAVISUALS_INSTALLED: '1'
           DIAVISUALS_DOCKER_SMOKE: '1'
           DIAVISUALS_MCP_SMOKE: '1'
-        run: .tmp/release-venv/bin/python -m unittest tests.test_artifacts tests.test_artifacts_runtime tests.test_runtime_selection tests.test_runtime_selection_docker
+        run: .tmp/release-venv/bin/python -m unittest tests.test_artifacts tests.test_artifacts_runtime tests.test_runtime_selection tests.test_runtime_selection_docker tests.test_session tests.test_session_mcp
+      - name: Prepare the real 0.5.0 rollback point
+        run: |
+          gh release download v0.5.0 --repo "$GITHUB_REPOSITORY" \
+            --pattern diavisuals-0.5.0-py3-none-any.whl --dir .tmp/previous-assets
+          printf '%s  %s\n' f52e20f20f1fb3a2418f07adb8d6a68a5567d0c321fb7c0ccc0f4db04917b96b \
+            "$DIAVISUALS_PREVIOUS_WHEEL" | sha256sum --check
+          uv venv --python 3.12 .tmp/previous-0.5.0
+          uv pip install --python "$DIAVISUALS_PREVIOUS_PYTHON" "$DIAVISUALS_PREVIOUS_WHEEL[mcp]"
+      - name: Prove live offline identity and scoped lifecycle
+        env:
+          DIAVISUALS_INSTALLED: '1'
+          DIAVISUALS_DOCKER_SMOKE: '1'
+          DIAVISUALS_D0_EVIDENCE: ${{ runner.temp }}/d0-evidence
+        run: .tmp/release-venv/bin/python -m unittest tests.test_d0_acceptance
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: d0-${{ matrix.distribution }}
+          path: ${{ runner.temp }}/d0-evidence
