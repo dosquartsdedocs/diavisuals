@@ -60,6 +60,21 @@ class D0AcceptanceTest(unittest.TestCase):
     def docker(self, *args):
         return subprocess.check_output([self.records["docker_executable"], *args], text=True, timeout=30).strip()
 
+    def lifecycle_cli(self, root, identity, *, ids=None, ok=True):
+        owner = identity["instance"]
+        command = [str(pathlib.Path(sys.executable).parent / "diavisuals"), "--project", str(root),
+                   "release-session" if ids else "inspect-session", "--instance-id", owner["instance_id"],
+                   "--pid", str(owner["pid"]), "--start-ticks", owner["start_ticks"],
+                   "--boot-id", owner["boot_id"], "--pid-namespace", owner["pid_namespace"],
+                   "--daemon-id", identity["docker_daemon"]["id"]]
+        for identity_value in ids or []:
+            command.extend(["--container-id", identity_value])
+        result = subprocess.run(command, capture_output=True, text=True, timeout=90)
+        self.assertEqual(result.returncode, 0 if ok else 1, result.stderr or result.stdout)
+        value = json.loads(result.stdout or result.stderr)
+        self.assertEqual(value["ok"], ok, value)
+        return value
+
     def consumer(self, name):
         root = self.base / name
         root.mkdir()
@@ -136,8 +151,7 @@ class D0AcceptanceTest(unittest.TestCase):
                     busy = await self.wait_worker(worker, task)
                     rejected = await worker.call_tool("release_session", {"expected_instance_id": busy["instance"]["instance_id"]})
                     self.assertTrue(rejected.isError)
-                    live_release = registry.session_containers(worker_root, owner=busy["instance"], daemon_id=busy["docker_daemon"]["id"],
-                                                               release_ids=[busy["lifecycle"]["jobs"][0]["container_id"]])
+                    live_release = self.lifecycle_cli(worker_root, busy, ids=[busy["lifecycle"]["jobs"][0]["container_id"]], ok=False)
                     self.assertFalse(live_release["ok"])
                     self.assertEqual(live_release["owner_state"], "alive")
                     await call(first, "release_session", {"expected_instance_id": first_identity["instance"]["instance_id"]})
@@ -149,7 +163,7 @@ class D0AcceptanceTest(unittest.TestCase):
                 self.records["observations"].extend([first_identity, busy, rendered["result"]["ownership"]])
                 await call(worker, "release_session", {"expected_instance_id": worker_identity["instance"]["instance_id"]})
             self.assertEqual(owner_state(worker_identity["instance"]), "dead")
-            stopped = registry.session_containers(worker_root, owner=worker_identity["instance"], daemon_id=worker_identity["docker_daemon"]["id"])
+            stopped = self.lifecycle_cli(worker_root, worker_identity)
             self.assertTrue(stopped["resources_released"], stopped)
             self.records["checks"]["independent_busy_detach_and_last_release"] = stopped
 
@@ -175,7 +189,7 @@ class D0AcceptanceTest(unittest.TestCase):
                 self.assertFalse(refused["ok"])
                 foreign = registry.session_containers(first_root, owner=busy["instance"], daemon_id=busy["docker_daemon"]["id"], release_ids=[cid])
                 self.assertFalse(foreign["ok"])
-                released = registry.session_containers(crash_root, owner=busy["instance"], daemon_id=busy["docker_daemon"]["id"], release_ids=[cid])
+                released = self.lifecycle_cli(crash_root, busy, ids=[cid])
                 self.assertTrue(released["ok"] and released["resources_released"], released)
                 self.records["checks"]["crash_recovery"] = {"identity": busy, "refused_wrong_namespace": refused, "released": released}
                 cid = None
