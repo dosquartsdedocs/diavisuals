@@ -53,7 +53,7 @@ jobs:
 
   docker:
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 90
     env:
       DIAVISUALS_PREVIOUS_PYTHON: ${{ github.workspace }}/.tmp/previous-0.5.0/bin/python
       DIAVISUALS_PREVIOUS_WHEEL: ${{ github.workspace }}/.tmp/previous-assets/diavisuals-0.5.0-py3-none-any.whl
@@ -98,7 +98,20 @@ jobs:
           .venv/bin/python tools/check-renderer-audit.py .tmp/npm-audit.json \
             --audit-exit-code "$audit_exit" \
             --image-id "$(docker image inspect diavisuals/render:v0.3.0 --format '{{.Id}}')"
+      - name: Retain the exact renderer audit for owner review
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: renderer-audit
+          path: .tmp/npm-audit.json
       - run: make docker-test
+      - name: Prove W1 from both non-editable distributions
+        run: DIAVISUALS_W1_DOCKER=1 DIAVISUALS_W1_EVIDENCE="$RUNNER_TEMP/w1-evidence" make tests-install
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: w1-installed-evidence
+          path: ${{ runner.temp }}/w1-evidence
       - run: DIAVISUALS_MCP_SMOKE=1 .venv/bin/python -m unittest tests.test_registry.RegistryTest.test_plantuml_renderer_blocks_workspace_includes_when_enabled
       - run: make render-gallery
       - run: git diff --exit-code -- docs/gallery

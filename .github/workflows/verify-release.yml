@@ -8,7 +8,7 @@ on:
       tag:
         description: Published release tag
         required: true
-        default: v0.6.0
+        default: v0.7.0
         type: string
 
 permissions:
@@ -21,7 +21,7 @@ concurrency:
 jobs:
   published-artifacts:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 60
     strategy:
       fail-fast: false
       matrix:
@@ -115,6 +115,19 @@ jobs:
           DIAVISUALS_DOCKER_SMOKE: '1'
           DIAVISUALS_D0_EVIDENCE: ${{ runner.temp }}/d0-evidence
         run: .tmp/release-venv/bin/python -m unittest tests.test_d0_acceptance
+      - name: Prove installed W1 companion, volumes, delivery and lifecycle
+        env:
+          DIAVISUALS_INSTALLED: '1'
+          DIAVISUALS_W1_DOCKER: '1'
+          DIAVISUALS_W1_EVIDENCE: ${{ runner.temp }}/w1-evidence
+        run: |
+          .tmp/release-venv/bin/python -m unittest tests.test_job_storage tests.test_job_storage_docker
+          .tmp/release-venv/bin/python -c 'from pathlib import Path; from diavisuals import registry; assert (registry.factory_metadata_root()/"mcp-job-storage.json").read_bytes() == Path(".tmp/release-assets/mcp-job-storage.json").read_bytes()'
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: w1-${{ matrix.distribution }}
+          path: ${{ runner.temp }}/w1-evidence
       - uses: actions/upload-artifact@v4
         if: always()
         with:

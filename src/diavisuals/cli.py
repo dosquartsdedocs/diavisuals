@@ -334,6 +334,55 @@ def cmd_recover_bundle(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_job(args: argparse.Namespace) -> int:
+    from . import job_storage as storage
+
+    action = args.job_command
+    if action == "init":
+        limits = {key: value for key, value in {"min_free_bytes": args.min_free_bytes, "max_jobs": args.max_jobs,
+                  "quota_enforcement": "hard" if args.require_hard_quota else None}.items() if value is not None}
+        payload = storage.Registry.create(args.registry, args.project, runtime=args.runtime, limits=limits)
+    else:
+        manager = storage.Registry(args.grant, args.project) if args.grant else storage.selected(args.project)
+        job_id = args.job_id
+        if action == "allocate":
+            payload = manager.allocate(args.project)
+        elif action == "list":
+            manager.admin()
+            with manager.locked() as state:
+                payload = {"ok": True, "jobs": [{"job_id": item["job_id"], "phase": item["phase"], "initialized": item["initialized"]} for item in state["jobs"].values()]}
+        elif action == "status":
+            payload = manager.status(job_id)
+        elif action == "control":
+            from .handoff_fs import parse_json
+            raw = sys.stdin.buffer.read(1024 * 1024 + 1) if args.request == "-" else args.request.encode()
+            payload = manager.control(parse_json(raw))
+        elif action == "render":
+            payload = manager.render(args.expected_revision, args.expected_epoch, job_id=job_id,
+                                     input_path=args.input, diagram_text=args.text, engine=args.engine, family=args.family, style=args.style,
+                                     output_format=args.output_format, original_path=args.original, edited_paths=args.edited, runtime=args.runtime)
+        elif action == "receiver":
+            payload = manager.register_receiver(args.root, args.prefix)
+        elif action == "deliver":
+            payload = manager.deliver(args.product, args.receiver, args.destination, args.expected_revision, args.expected_epoch, job_id)
+        elif action == "plan-release":
+            payload = manager.plan_release(job_id)
+        elif action == "release":
+            payload = manager.release(args.plan_sha256, args.expected_revision, args.expected_epoch, job_id)
+        elif action == "recover":
+            payload = manager.recover(job_id)
+        elif action == "toggle":
+            payload = manager.toggle_group(args.jobs)
+        elif action == "reopen":
+            payload = manager.reopen(args.expected_revision, args.expected_epoch, job_id)
+        elif action == "discard":
+            payload = manager.discard(args.tree_sha256, args.expected_revision, args.expected_epoch, args.reason, confirm=args.confirm_discard, job_id=job_id)
+        else:
+            raise ValueError("unsupported job operation")
+    print_payload(payload)
+    return 1 if payload.get("ok") is False else 0
+
+
 def cmd_mcp(args: argparse.Namespace) -> int:
     if args.mcp_command == "serve":
         from .mcp_server import run_server
@@ -538,6 +587,48 @@ def build_parser() -> argparse.ArgumentParser:
     recover_parser.add_argument("--bundle-id", required=True)
     recover_parser.set_defaults(func=cmd_recover_bundle)
 
+    job_parser = subcommands.add_parser("job", help="Explicit private-registry W1 volume jobs; directory retention and exact scoped release")
+    job_parser.add_argument("--grant", help="Private manager-issued grant; otherwise DIAVISUALS_JOB_STORAGE_GRANT")
+    job_parser.add_argument("--job-id", help="Exact registered job for an administrative grant")
+    jobs = job_parser.add_subparsers(dest="job_command", required=True)
+    for action in ("init", "allocate", "list", "status", "control", "render", "receiver", "deliver", "plan-release", "release", "recover", "reopen", "discard", "toggle"):
+        command = jobs.add_parser(action)
+        command.set_defaults(func=cmd_job)
+        if action in {"render", "deliver", "release", "reopen", "discard"}:
+            command.add_argument("--expected-revision", type=int, required=True)
+            command.add_argument("--expected-epoch", type=int, required=True)
+        if action == "init":
+            command.add_argument("--registry", required=True, help="New private metadata directory outside consumer/engine roots")
+            command.add_argument("--min-free-bytes", type=int)
+            command.add_argument("--max-jobs", type=int)
+            command.add_argument("--require-hard-quota", action="store_true", help="Fail unless hard quotas are supported (not supported by this monitored profile)")
+        elif action == "control":
+            command.add_argument("--request", required=True, help="Exact W1 request JSON; '-' reads bounded stdin")
+        elif action == "render":
+            source = command.add_mutually_exclusive_group(required=True)
+            source.add_argument("--input")
+            source.add_argument("--text")
+            command.add_argument("--engine", choices=["auto", "mermaid", "plantuml"], default="auto")
+            command.add_argument("--family", default=DEFAULT_FAMILY)
+            command.add_argument("--style", default="")
+            command.add_argument("--format", dest="output_format", choices=["svg", "png", "pdf"], default="svg")
+            command.add_argument("--original")
+            command.add_argument("--edited", action="append")
+        elif action == "receiver":
+            command.add_argument("--root", required=True, help="Explicit durable receiver root on a supported persistent filesystem")
+            command.add_argument("--prefix", required=True, help="Receiver-authorized durable destination prefix")
+        elif action == "deliver":
+            for field in ("product", "receiver", "destination"):
+                command.add_argument("--" + field, required=True)
+        elif action == "release":
+            command.add_argument("--plan-sha256", required=True)
+        elif action == "toggle":
+            command.add_argument("--jobs", nargs="+", required=True, help="Exact registered jobs; preserve other native clients and transfers")
+        elif action == "discard":
+            command.add_argument("--tree-sha256", required=True)
+            command.add_argument("--reason", required=True)
+            command.add_argument("--confirm-discard", action="store_true")
+
     codex_parser = subcommands.add_parser("install-codex-mcp", help="Register this MCP server with Codex")
     codex_parser.add_argument("--server-name", default="diavisuals")
     codex_parser.add_argument("--codex-bin", default="codex")
@@ -571,9 +662,15 @@ def main(argv: list[str] | None = None) -> int:
         args.project = str(pathlib.Path(args.project).absolute())
     try:
         args.runtime = runtime_selection(args.runtime_image, args.runtime_expected_id)
+        if os.environ.get("DIAVISUALS_JOB_STORAGE_GRANT") and args.command in {
+            "render-diagram", "render-diagram-text", "export-diagram-bundle", "project-check", "init", "recover-diagram-bundle", "down",
+        }:
+            raise ValueError("W1 is selected: use job render/control/deliver; legacy host staging and workspace-wide down are unavailable in this context")
         return int(args.func(args))
     except Exception as exc:
         payload = {"ok": False, "error": str(exc)}
+        if hasattr(exc, "code"):
+            payload["code"] = exc.code
         if args.command == "project-check":
             # Selection parsing can fail before project_check gets control. A
             # failed check must not leave an apparently successful old receipt.

@@ -104,6 +104,8 @@ MAX_COMPANION_ARTIFACT_BYTES = 16 * 1024 * 1024
 MCP_TOOL_NAMES = (
     "server_identity",
     "release_session",
+    "job_storage",
+    "render_job_diagram",
     "style_inventory",
     "style_audit",
     "check_styles",
@@ -123,6 +125,7 @@ MCP_TOOL_NAMES = (
 )
 MCP_RESOURCE_URIS = (
     "diavisuals://server/identity",
+    "diavisuals://job-storage",
     "diavisuals://agent-guide",
     "diavisuals://styles",
     "diavisuals://compatibility",
@@ -2680,6 +2683,11 @@ def factory_check(project_root: str | pathlib.Path = ".") -> dict[str, Any]:
             issues.append(str(exc))
     styles = check_styles()
     issues.extend(styles["issues"])
+    try:
+        from .job_storage import declaration
+        declaration()
+    except (OSError, ValueError, KeyError, TypeError) as exc:
+        issues.append(f"job-storage companion: {exc}")
     root = pathlib.Path(project_root).expanduser().resolve()
     if not root.is_dir():
         issues.append(f"consumer project root does not exist: {project_root}")

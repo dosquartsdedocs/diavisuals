@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "diavisuals"
-version = "0.6.0"
+version = "0.7.0"
 description = "Workspace-confined Mermaid and PlantUML rendering through hardened Docker."
 readme = "README.md"
 requires-python = ">=3.10"
@@ -51,6 +51,7 @@ include = [
   "/examples",
   "/mcp-factory-package.yml",
   "/mcp-factory.yml",
+  "/mcp-job-storage.json",
   "/pyproject.toml",
   "/scripts",
   "/src",
@@ -73,6 +74,7 @@ packages = ["src/diavisuals"]
 "docker" = "diavisuals/assets/docker"
 "tools" = "diavisuals/assets/tools"
 "mcp-factory-package.yml" = "diavisuals/assets/mcp-factory.yml"
+"mcp-job-storage.json" = "diavisuals/assets/mcp-job-storage.json"
 "AGENTS.md" = "diavisuals/assets/AGENTS.md"
 "Makefile" = "diavisuals/assets/Makefile"
 

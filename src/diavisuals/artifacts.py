@@ -52,6 +52,8 @@ ROLE_SEMANTICS = {
     "diagram-generated": ("output", "producer"),
     "diagram-original": ("output", "author"),
     "diagram-edited": ("output", "author"),
+    "job-input-snapshot": ("input", "producer"),
+    "job-recovery": ("evidence", "producer"),
 }
 
 
