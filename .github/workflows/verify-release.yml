@@ -120,10 +120,7 @@ jobs:
           DIAVISUALS_INSTALLED: '1'
           DIAVISUALS_W1_DOCKER: '1'
           DIAVISUALS_W1_EVIDENCE: ${{ runner.temp }}/w1-evidence
-          DIAVISUALS_STORAGE_REFERENCE: ${{ github.workspace }}/.tmp/w1-reference.git
         run: |
-          git init --bare .tmp/w1-reference.git
-          git --git-dir=.tmp/w1-reference.git fetch --depth=1 https://github.com/dosquartsdedocs/gacontext.git 83cb0d3e2f424759475ae70b423a0f8dca8520b2
           .tmp/release-venv/bin/python -m unittest tests.test_job_storage tests.test_job_storage_docker
           .tmp/release-venv/bin/python -c 'from pathlib import Path; from diavisuals import registry; assert (registry.factory_metadata_root()/"mcp-job-storage.json").read_bytes() == Path(".tmp/release-assets/mcp-job-storage.json").read_bytes()'
       - uses: actions/upload-artifact@v4

@@ -57,7 +57,6 @@ jobs:
     env:
       DIAVISUALS_PREVIOUS_PYTHON: ${{ github.workspace }}/.tmp/previous-0.5.0/bin/python
       DIAVISUALS_PREVIOUS_WHEEL: ${{ github.workspace }}/.tmp/previous-assets/diavisuals-0.5.0-py3-none-any.whl
-      DIAVISUALS_STORAGE_REFERENCE: ${{ github.workspace }}/.tmp/w1-reference.git
     steps:
       - uses: actions/checkout@v4
         with:
@@ -69,10 +68,6 @@ jobs:
           enable-cache: true
       - run: uv sync --locked --extra dev --extra mcp
       - run: docker info
-      - name: Fetch immutable read-only W1 reference objects
-        run: |
-          git init --bare .tmp/w1-reference.git
-          git --git-dir=.tmp/w1-reference.git fetch --depth=1 https://github.com/dosquartsdedocs/gacontext.git 83cb0d3e2f424759475ae70b423a0f8dca8520b2
       - name: Prepare the actual previous published control plane
         env:
           GH_TOKEN: ${{ github.token }}

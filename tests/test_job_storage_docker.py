@@ -21,7 +21,7 @@ if os.environ.get("DIAVISUALS_INSTALLED") != "1":
 
 from diavisuals import artifacts  # noqa: E402
 from diavisuals import job_storage as storage  # noqa: E402
-from tests.job_storage_reference import REFERENCE, pinned_reference  # noqa: E402
+from tests.job_storage_reference import pinned_reference  # noqa: E402
 
 
 @unittest.skipUnless(os.environ.get("DIAVISUALS_W1_DOCKER") == "1", "set DIAVISUALS_W1_DOCKER=1")
@@ -39,11 +39,9 @@ class StorageDockerTests(unittest.TestCase):
         self.receiver = self.receiver_parent / self.root.name
         self.receiver.mkdir()
         self.wire = []
-        self.reference = None
-        if REFERENCE:
-            context = pinned_reference()
-            self.reference, _ = context.__enter__()
-            self.addCleanup(context.__exit__, None, None, None)
+        context = pinned_reference()
+        self.reference, _ = context.__enter__()
+        self.addCleanup(context.__exit__, None, None, None)
         original_binding = storage.Registry.binding
 
         def observed_binding(manager, job, lease, readonly):

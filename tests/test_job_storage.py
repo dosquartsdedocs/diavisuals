@@ -14,7 +14,7 @@ if os.environ.get("DIAVISUALS_INSTALLED") != "1":
     sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1] / "src"))
 
 from diavisuals import job_io, job_storage, job_worker  # noqa: E402
-from tests.job_storage_reference import REFERENCE, pinned_reference  # noqa: E402
+from tests.job_storage_reference import pinned_reference  # noqa: E402
 
 
 class StorageUnitTests(unittest.TestCase):
@@ -113,7 +113,6 @@ class StorageUnitTests(unittest.TestCase):
         with mock.patch.object(registry, "locked", return_value=contextlib.nullcontext(state)), self.assertRaisesRegex(job_storage.StorageError, "access kind"):
             registry.worker(state, job, {"op": "render"}, lease=lease)
 
-    @unittest.skipUnless(REFERENCE, "set DIAVISUALS_STORAGE_REFERENCE")
     def test_published_companion_matches_pinned_independent_validator(self):
         with pinned_reference() as (contract, _):
             contract.validate(job_storage.declaration()[0])

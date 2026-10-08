@@ -157,8 +157,11 @@ DIAVISUALS_STORAGE_REFERENCE=/absolute/read-only/gacontext-reference \
   tests.test_job_storage tests.test_job_storage_docker
 ```
 
-The independent validator reads Git objects at the pin above, not the reference
-checkout's mutable HEAD. Real tests exercise both renderers, source/variant closure,
+The independent validator executes the unchanged schema/checker/planner from a
+hash-bound three-file Git archive fixture at the pin above. CI needs no access to
+the private reference repository. With the reference environment selected, tests
+also compare the fixture with the exact Git objects and use the original reference
+dependencies, rather than the small offline JSON/error/file adapters. Real tests exercise both renderers, source/variant closure,
 closed-job delivery after scratch removal, receiver relocation, changed final bytes,
 actual two-process interests, busy quiesce/controller SIGKILL and exact recovery,
 foreign stopped attachment, stale CAS/plan, changed daemon, group toggle,
