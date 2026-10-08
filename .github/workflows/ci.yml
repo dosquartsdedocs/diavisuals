@@ -98,6 +98,12 @@ jobs:
           .venv/bin/python tools/check-renderer-audit.py .tmp/npm-audit.json \
             --audit-exit-code "$audit_exit" \
             --image-id "$(docker image inspect diavisuals/render:v0.3.0 --format '{{.Id}}')"
+      - name: Retain the exact renderer audit for owner review
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: renderer-audit
+          path: .tmp/npm-audit.json
       - run: make docker-test
       - name: Prove W1 from both non-editable distributions
         run: DIAVISUALS_W1_DOCKER=1 DIAVISUALS_W1_EVIDENCE="$RUNNER_TEMP/w1-evidence" make tests-install
