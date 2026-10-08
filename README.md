@@ -62,6 +62,12 @@ For live serving-process identity, busy/drain behavior and exact orphan recovery
 see the [D0 native stdio mapping](docs/native-runtime-d0.md). Normal launch/status
 requires explicit preparation; a renderer-only status is not live MCP identity.
 
+The 0.7.0 development profile adds [W1 volume jobs and durable directory delivery](docs/w1-job-storage.md).
+Select it with a private manager-issued `DIAVISUALS_JOB_STORAGE_GRANT`; the MCP
+then offers `render_job_diagram` and `job_storage`. Original consumer identity
+stays fixed while work uses `/work` and `/work/scratch` in separate named volumes.
+Published 0.6.0 remains the installation point above until the new release is verified.
+
 Force-remove active renderer containers for one selected consumer workspace
 without removing images, volumes, other workspaces, or unrelated containers:
 

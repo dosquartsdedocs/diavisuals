@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.7.0 - unreleased
+
+- Add the explicit `diavisuals-private-directory-v1` W1 profile and installed `mcp-job-storage.json`, preserving consumer/Git policies and earlier artifact schemas.
+- Render Mermaid/PlantUML in distinct retained/scratch Docker volumes with authenticated job grants, CAS revisions, epochs, native process leases and exact D0 worker cleanup.
+- Retain inline/file sources, effective options, styles, original/edited SVGs, complete native v1 products and recovery evidence; expose bounded `job_storage` and `render_job_diagram` tools plus the `job` CLI.
+- Verify receiver-selected directory retention and current destination bytes before non-force exact-volume retirement. Preserve pending/unknown content, other clients and interrupted operations.
+- Enforce conservative per-registry reservations and monitored byte/entry/free-space budgets. Keep the published renderer image/profile/audit decision unchanged; hard quotas and shared-manager interoperability require separately verified profiles.
+
 ## 0.6.0 - 2026-10-05
 
 - Add bounded live MCP server identity and matching resource, including process instance/PID namespace, loaded code/version, startup versus current disk evidence, consumer binding and selected/observed runtime.

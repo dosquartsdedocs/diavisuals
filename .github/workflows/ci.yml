@@ -53,10 +53,11 @@ jobs:
 
   docker:
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 90
     env:
       DIAVISUALS_PREVIOUS_PYTHON: ${{ github.workspace }}/.tmp/previous-0.5.0/bin/python
       DIAVISUALS_PREVIOUS_WHEEL: ${{ github.workspace }}/.tmp/previous-assets/diavisuals-0.5.0-py3-none-any.whl
+      DIAVISUALS_STORAGE_REFERENCE: ${{ github.workspace }}/.tmp/w1-reference.git
     steps:
       - uses: actions/checkout@v4
         with:
@@ -68,6 +69,10 @@ jobs:
           enable-cache: true
       - run: uv sync --locked --extra dev --extra mcp
       - run: docker info
+      - name: Fetch immutable read-only W1 reference objects
+        run: |
+          git init --bare .tmp/w1-reference.git
+          git --git-dir=.tmp/w1-reference.git fetch --depth=1 https://github.com/dosquartsdedocs/gacontext.git 83cb0d3e2f424759475ae70b423a0f8dca8520b2
       - name: Prepare the actual previous published control plane
         env:
           GH_TOKEN: ${{ github.token }}
@@ -99,6 +104,13 @@ jobs:
             --audit-exit-code "$audit_exit" \
             --image-id "$(docker image inspect diavisuals/render:v0.3.0 --format '{{.Id}}')"
       - run: make docker-test
+      - name: Prove W1 from both non-editable distributions
+        run: DIAVISUALS_W1_DOCKER=1 DIAVISUALS_W1_EVIDENCE="$RUNNER_TEMP/w1-evidence" make tests-install
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: w1-installed-evidence
+          path: ${{ runner.temp }}/w1-evidence
       - run: DIAVISUALS_MCP_SMOKE=1 .venv/bin/python -m unittest tests.test_registry.RegistryTest.test_plantuml_renderer_blocks_workspace_includes_when_enabled
       - run: make render-gallery
       - run: git diff --exit-code -- docs/gallery

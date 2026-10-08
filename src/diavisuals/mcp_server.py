@@ -1,12 +1,14 @@
 from __future__ import annotations
 
+import os
 import pathlib
 from contextlib import asynccontextmanager
 from typing import Any
 
 from . import artifacts
+from . import job_storage as storage
 from . import registry as core
-from .session import ServerSession
+from .session import CURRENT_SESSION, ServerSession
 
 
 def _resolve_consumer_root(project: pathlib.Path) -> pathlib.Path:
@@ -27,6 +29,8 @@ def run_server(project: pathlib.Path, *, runtime: core.RuntimeSelection | None =
     # Preserve the selected spelling for the stricter v1 no-link ancestor check.
     artifact_root = project.expanduser().absolute()
     instance = ServerSession(consumer_root, runtime)
+    store = storage.selected(consumer_root) if os.environ.get(storage.CONTEXT_ENV) else None
+    interest = store.client_attach() if store else None
     try:
         from mcp.server.fastmcp import FastMCP
         from mcp.types import CallToolResult, TextContent
@@ -41,6 +45,8 @@ def run_server(project: pathlib.Path, *, runtime: core.RuntimeSelection | None =
         try:
             yield {}
         finally:
+            if store and interest and not interest.get("released"):
+                store.client_detach(interest["lease_id"])
             instance.close()
 
     mcp = FastMCP("diavisuals", lifespan=lifespan)
@@ -59,12 +65,16 @@ def run_server(project: pathlib.Path, *, runtime: core.RuntimeSelection | None =
             payload = callback()
         except Exception as exc:
             payload = {"ok": False, "error": str(exc)}
+            if hasattr(exc, "code"):
+                payload["code"] = exc.code
         return require_ok(payload)
 
     async def operation(name: str, callback: Any) -> Any:
         import anyio
 
         def execute():
+            if store and name in {"render_diagram", "render_diagram_text", "export_diagram_bundle", "initialize_artifact_export", "recover_diagram_bundle", "project_check"}:
+                raise storage.StorageError("storage-binding-mismatch", "W1 is selected: use render_job_diagram and job_storage; receiver delivery is a manager operation")
             with instance.operation(name):
                 return callback()
 
@@ -75,12 +85,19 @@ def run_server(project: pathlib.Path, *, runtime: core.RuntimeSelection | None =
             payload = await anyio.to_thread.run_sync(execute)
         except Exception as exc:
             payload = {"ok": False, "error": str(exc)}
+            if hasattr(exc, "code"):
+                payload["code"] = exc.code
         return require_ok(payload)
 
     async def live_identity() -> dict[str, Any]:
         import anyio
 
-        return await anyio.to_thread.run_sync(instance.identity)
+        value = await anyio.to_thread.run_sync(instance.identity)
+        if store:
+            value["job_storage"] = {"contract": storage.CONTRACT, "profile": "diavisuals-private-directory-v1",
+                                    "registry_id": store.grant["registry_id"], "job_id": store.grant["job_id"], "lease_id": interest["lease_id"],
+                                    "origin_consumer": str(consumer_root), "job_root": "/work", "scratch_root": "/work/scratch"}
+        return value
 
     @mcp.resource("diavisuals://server/identity")
     async def identity_resource() -> str:
@@ -95,7 +112,55 @@ def run_server(project: pathlib.Path, *, runtime: core.RuntimeSelection | None =
     @mcp.tool()
     def release_session(expected_instance_id: str) -> dict[str, Any]:
         """Drain this idle stdio instance; refuse busy/unknown state. Caller then closes/waits."""
-        return tool_result(lambda: instance.release(expected_instance_id))
+        def release():
+            result = instance.release(expected_instance_id)
+            if result["ok"] and store and interest and not interest.get("released"):
+                result["job_storage"] = store.client_detach(interest["lease_id"])
+                interest["released"] = True
+            return result
+        return tool_result(release)
+
+    @mcp.resource("diavisuals://job-storage")
+    def storage_contract() -> str:
+        """Exact installed W1 declaration; private-manager selection is explicit."""
+        provider, sha256 = storage.declaration()
+        return core.json_dumps({"provider": provider, "sha256": sha256, "profile": "diavisuals-private-directory-v1"})
+
+    @mcp.tool()
+    async def job_storage(request: dict[str, Any]) -> dict[str, Any]:
+        """Bound W1 status/quiesce/seal; exact revision/epoch CAS for mutations. No arbitrary mounts or acknowledgements."""
+        import anyio
+
+        try:
+            storage.need(store is not None, "storage-binding-mismatch", "select a private manager-issued job at startup")
+            # Quiesce/status stay responsive while an admitted render completes.
+            def control():
+                if request.get("operation") == "seal":
+                    with instance.operation("job_storage_seal"):
+                        return store.control(request)
+                if request.get("operation") != "status":
+                    storage.need(instance.lifecycle()["state"] != "draining", "storage-admission-closed", "native session is draining")
+                token = CURRENT_SESSION.set(instance)
+                try:
+                    return store.control(request)
+                finally:
+                    CURRENT_SESSION.reset(token)
+            return await anyio.to_thread.run_sync(control)
+        except Exception as exc:
+            return require_ok({"ok": False, "code": getattr(exc, "code", "storage-observation-unknown"), "error": str(exc)[:1024]})
+
+    @mcp.tool()
+    async def render_job_diagram(expected_revision: int, expected_epoch: int, input_path: str | None = None,
+                                 diagram_text: str | None = None, engine: str = "auto", family: str = core.DEFAULT_FAMILY,
+                                 style: str = "", output_format: str = "svg", original_path: str | None = None,
+                                 edited_paths: list[str] | None = None) -> dict[str, Any]:
+        """Retain inputs/resources and render in the selected W1 volumes; seal through job_storage and deliver through the manager."""
+        def render():
+            storage.need(store is not None, "storage-binding-mismatch", "select a private manager-issued job at startup")
+            return store.render(expected_revision, expected_epoch, input_path=input_path, diagram_text=diagram_text, engine=engine,
+                                family=family, style=style, output_format=output_format, original_path=original_path,
+                                edited_paths=edited_paths, runtime=runtime)
+        return await operation("render_job_diagram", render)
 
     @mcp.resource("diavisuals://agent-guide")
     def agent_guide() -> str:
@@ -140,6 +205,8 @@ def run_server(project: pathlib.Path, *, runtime: core.RuntimeSelection | None =
     async def project_check_resource() -> str:
         """Project-wide diagram output and unaltraweb receipt check."""
         def checked():
+            if store:
+                raise storage.StorageError("storage-binding-mismatch", "legacy project checking is outside the selected W1 profile")
             with instance.operation("project_check"):
                 return core.project_check(consumer_root, runtime=runtime)
         import anyio
