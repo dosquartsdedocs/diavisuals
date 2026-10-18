@@ -107,6 +107,13 @@ class RegistryTest(unittest.TestCase):
         self.assertEqual(audit["gallery"]["missing_outputs"], [])
 
     def test_compatibility_status(self) -> None:
+        current = compatibility_status()
+        self.assertEqual(current["requested"], "mermaid-12.0.0-plantuml-1.2026.9")
+        self.assertEqual(current["values"]["MERMAID_CLI_VERSION"], "12.0.0")
+        self.assertEqual(current["values"]["PUPPETEER_VERSION"], "25.14.0")
+        self.assertEqual(current["values"]["PLANTUML_VERSION"], "1.2026.9")
+        self.assertEqual(current["values"]["DIAVISUALS_RENDER_IMAGE"], "diavisuals/render:v0.7.0")
+        self.assertTrue(current["renderable"])
         status = compatibility_status("mermaid-11.16.0-plantuml-1.2026.1")
         self.assertTrue(status["ok"], status)
         self.assertEqual(status["values"]["MERMAID_CLI_VERSION"], "11.16.0")
@@ -449,6 +456,15 @@ class RegistryTest(unittest.TestCase):
             target = repository / "docs/gallery/benizar/test-profile"
             self.assertEqual(published.returncode, 0, published.stderr)
             self.assertTrue((target / "mermaid/flowchart.svg").is_file())
+
+            original = (target / "mermaid/flowchart.svg").read_bytes()
+            (result / "mermaid/flowchart.svg").write_text(
+                "<svg xmlns='http://www.w3.org/2000/svg'><text>'skinparam ParticipantPadding' is\u00a0ignored: use a style instead</text></svg>", encoding="utf-8")
+            rejected = subprocess.run(command, text=True, capture_output=True, check=False)
+            self.assertNotEqual(rejected.returncode, 0)
+            self.assertIn("renderer diagnostic", rejected.stderr)
+            self.assertEqual((target / "mermaid/flowchart.svg").read_bytes(), original)
+            (result / "mermaid/flowchart.svg").write_bytes(original)
 
             (result / ".hidden").symlink_to(root / "outside")
             rejected = subprocess.run(command, text=True, capture_output=True, check=False)
@@ -1260,6 +1276,11 @@ class RegistryTest(unittest.TestCase):
         self.assertIn("cleanup could not be verified", result["stderr"])
 
     def test_renderer_assets_pin_base_digest_checksum_and_nonroot_user(self) -> None:
+        current = (REPO_ROOT / "docker/current/compat-renderer.Dockerfile").read_text(encoding="utf-8")
+        self.assertIn("25.14.0@sha256:ced0f7e1b416fafb4166f9f9d26109ea7bbd7cb04b8a38ae8c14b61f364c3d6f", current)
+        self.assertIn("aa4a1d06f8911c4b842beff4828dd955be431692b631a312d04c0e9fab9581de", current)
+        self.assertIn("USER 65532:65532", current)
+        self.assertIn("npm audit", current)
         dockerfile = (REPO_ROOT / "docker/compat-renderer.Dockerfile").read_text(encoding="utf-8")
         self.assertIn(
             "ghcr.io/puppeteer/puppeteer:25.9.0@sha256:5c341215d78353c3416b6c92aae9fac66e8f11c146c3753234980443d6792f8f",
@@ -1391,12 +1412,12 @@ class RegistryTest(unittest.TestCase):
                                 "dry_run": True,
                             },
                         )
-                        self.assertTrue(invalid.isError)
+                        self.assertTrue(invalid.is_error)
                         invalid_text = "\n".join(getattr(item, "text", "") for item in invalid.content)
                         self.assertIn("outside the project root", invalid_text)
-                        self.assertIsNotNone(invalid.structuredContent)
-                        self.assertIs(invalid.structuredContent["ok"], False)
-                        self.assertIn("outside the project root", invalid.structuredContent["error"])
+                        self.assertIsNotNone(invalid.structured_content)
+                        self.assertIs(invalid.structured_content["ok"], False)
+                        self.assertIn("outside the project root", invalid.structured_content["error"])
 
         asyncio.run(run_smoke())
 

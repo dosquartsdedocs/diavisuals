@@ -1,6 +1,6 @@
 # diavisuals
 
-![release](https://img.shields.io/badge/release-v0.6.0-2a5db0) ![Mermaid CLI](https://img.shields.io/badge/Mermaid_CLI-11.16.0-ff3670) ![PlantUML](https://img.shields.io/badge/PlantUML-1.2026.1-2a5db0) ![family](https://img.shields.io/badge/family-benizar-2a5db0)
+![release](https://img.shields.io/badge/release-v0.7.0-2a5db0) ![Mermaid CLI](https://img.shields.io/badge/Mermaid_CLI-12.0.0-ff3670) ![PlantUML](https://img.shields.io/badge/PlantUML-1.2026.9-2a5db0) ![family](https://img.shields.io/badge/family-benizar-2a5db0)
 
 `diavisuals` centralizes shared Mermaid and PlantUML visual styles and the
 Docker renderer used by dosquartsdedocs projects. The goal is to stop copying
@@ -40,13 +40,14 @@ That split matters because a quadrant chart, a sequence diagram, and a treemap n
 Install the package and MCP dependencies with `uv`:
 
 ```bash
-uv tool install 'diavisuals[mcp] @ https://github.com/dosquartsdedocs/diavisuals/releases/download/v0.6.0/diavisuals-0.6.0-py3-none-any.whl'
+uv tool install 'diavisuals[mcp] @ https://github.com/dosquartsdedocs/diavisuals/releases/download/v0.7.0/diavisuals-0.7.0-py3-none-any.whl'
 ```
 
 For released-producer acceptance, first load the checksum-verified renderer
 archive from the same GitHub release. See [release installation and pins](docs/releases.md#published-artifacts).
-The image ID is unchanged from the tested v0.3.0 renderer. A source checkout can
-also prepare the shared renderer with:
+The v0.7.0 renderer has its own immutable image ID and compatibility profile;
+published older runtimes remain separately available. A source checkout can
+prepare the shared renderer with:
 
 ```bash
 make mcp-build
@@ -61,6 +62,16 @@ cache/freshness rules and examples.
 For live serving-process identity, busy/drain behavior and exact orphan recovery,
 see the [D0 native stdio mapping](docs/native-runtime-d0.md). Normal launch/status
 requires explicit preparation; a renderer-only status is not live MCP identity.
+
+The 0.7.0 profile adds [W1 volume jobs and durable directory delivery](docs/w1-job-storage.md).
+Select it with a private manager-issued `DIAVISUALS_JOB_STORAGE_GRANT`; the MCP
+then offers `render_job_diagram` and `job_storage`. Original consumer identity
+stays fixed while work uses `/work` and `/work/scratch` in separate named volumes.
+
+Shared [gaContExt memory](docs/memory-integration.md) is an independent companion:
+agents can recall preferences and retain future diagram ideas when its tools are
+connected. The package ships this guidance; it does not install a second memory
+store or implicitly activate a memory server.
 
 Force-remove active renderer containers for one selected consumer workspace
 without removing images, volumes, other workspaces, or unrelated containers:
@@ -183,17 +194,17 @@ profile, portability, retention and recovery contract.
 
 ## Rendered Gallery
 
-The default gallery is generated for release `v0.3.1`. It retains the `v0.3.0` renderer image and compatibility profile `mermaid-11.16.0-plantuml-1.2026.1`: Mermaid CLI 11.16.0 and PlantUML 1.2026.1. The full manifest is [`docs/gallery/benizar/mermaid-11.16.0-plantuml-1.2026.1/manifest.csv`](docs/gallery/benizar/mermaid-11.16.0-plantuml-1.2026.1/manifest.csv).
+The default gallery uses the `v0.7.0` renderer and compatibility profile `mermaid-12.0.0-plantuml-1.2026.9`: Mermaid CLI 12.0.0 and PlantUML 1.2026.9. The full manifest is [`docs/gallery/benizar/mermaid-12.0.0-plantuml-1.2026.9/manifest.csv`](docs/gallery/benizar/mermaid-12.0.0-plantuml-1.2026.9/manifest.csv). The `benizar` style selects Mermaid's classic look explicitly and keeps SVG text font-free for the portable leaf-bundle profile.
 
 README previews are generated as PNG thumbnails from the same examples as the full SVG gallery. Mermaid SVG output uses native text where supported and preserves inter-word `tspan` whitespace for print and conversion tools.
 
 | Mermaid workflow | Mermaid board | Mermaid decision matrix |
 | --- | --- | --- |
-| <img src="docs/gallery/benizar/mermaid-11.16.0-plantuml-1.2026.1/readme/mermaid-flowchart.png" width="300"> | <img src="docs/gallery/benizar/mermaid-11.16.0-plantuml-1.2026.1/readme/mermaid-kanban.png" width="300"> | <img src="docs/gallery/benizar/mermaid-11.16.0-plantuml-1.2026.1/readme/mermaid-quadrantchart.png" width="300"> |
+| <img src="docs/gallery/benizar/mermaid-12.0.0-plantuml-1.2026.9/readme/mermaid-flowchart.png" width="300"> | <img src="docs/gallery/benizar/mermaid-12.0.0-plantuml-1.2026.9/readme/mermaid-kanban.png" width="300"> | <img src="docs/gallery/benizar/mermaid-12.0.0-plantuml-1.2026.9/readme/mermaid-quadrantchart.png" width="300"> |
 
 | PlantUML sequence | PlantUML files | PlantUML activity |
 | --- | --- | --- |
-| <img src="docs/gallery/benizar/mermaid-11.16.0-plantuml-1.2026.1/readme/plantuml-sequence.png" width="300"> | <img src="docs/gallery/benizar/mermaid-11.16.0-plantuml-1.2026.1/readme/plantuml-files.png" width="300"> | <img src="docs/gallery/benizar/mermaid-11.16.0-plantuml-1.2026.1/readme/plantuml-activity.png" width="300"> |
+| <img src="docs/gallery/benizar/mermaid-12.0.0-plantuml-1.2026.9/readme/plantuml-sequence.png" width="300"> | <img src="docs/gallery/benizar/mermaid-12.0.0-plantuml-1.2026.9/readme/plantuml-files.png" width="300"> | <img src="docs/gallery/benizar/mermaid-12.0.0-plantuml-1.2026.9/readme/plantuml-activity.png" width="300"> |
 
 Regenerate the gallery with:
 

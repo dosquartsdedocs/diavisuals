@@ -1,0 +1,25 @@
+{
+  "kind": "gacontext.job-storage-provider",
+  "schema_version": 1,
+  "contract": "docker-job-volumes-v1",
+  "provider": "diavisuals",
+  "storage_tool": "job_storage",
+  "job_root": "/work",
+  "scratch_root": "/work/scratch",
+  "path_policies": [
+    {"path": "inputs", "type": "directory", "role": "input-snapshots", "cleanup": "resolved-retention"},
+    {"path": "results", "type": "directory", "role": "results", "cleanup": "resolved-retention"},
+    {"path": "exports", "type": "directory", "role": "sealed-products", "cleanup": "resolved-retention"},
+    {"path": "recovery", "type": "directory", "role": "recovery", "cleanup": "resolved-retention"},
+    {"path": "scratch", "type": "directory", "role": "regenerable", "cleanup": "on-release"}
+  ],
+  "limits": {
+    "max_scratch_bytes": 536870912,
+    "max_retained_bytes": 536870912,
+    "max_entries": 5000,
+    "max_jobs": 2,
+    "min_free_bytes": 1073741824,
+    "monitor_interval_seconds": 2,
+    "quota_enforcement": "monitored"
+  }
+}

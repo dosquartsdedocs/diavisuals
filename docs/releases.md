@@ -1,136 +1,122 @@
 # Release Matrix
 
-`diavisuals` release tags stay short. The engine versions and supported diagram sets are documented here, in the README badges, and in the gallery manifests.
+Short SemVer tags identify a reviewed controller, style assets, compatibility
+profile and renderer tuple. Engine versions are recorded independently.
 
-## Control plane 0.6.0
+## Current release: 0.7.0
 
-`0.6.0` adds [D0 live serving identity and scoped lifecycle](native-runtime-d0.md)
-alongside the [native immutable runtime selection](runtime-selection.md) from 0.5.0.
-It reuses the published renderer and preserves all compatibility-profile/style
-bytes. Its wheel/sdist are new artifacts, not replacements for published `0.4.0`.
-Coordinators that pin helper 0.4.0 must accept their own adoption; H1/H2 mapping
-remains a separate hub integration step.
+0.7.0 adds [W1 private volume jobs and durable directory retention](w1-job-storage.md)
+and migrates the stdio server to MCP SDK **2.3.0**. It preserves the native
+[runtime selectors](runtime-selection.md), [D0 lifecycle](native-runtime-d0.md)
+and existing artifact-handoff-v1 formats. Shared [gaContExt memory](memory-integration.md)
+is an independent companion described by the shipped agent guide.
 
-See the [H2 selection handoff](runtime-selection-report-2026-09-29.md) for tested
-historical development-candidate hashes and same-daemon installed evidence.
-The final release's `release.json` binds the reviewed commit to the final
-artifact hashes, descriptor, acceptance receipt and reused runtime.
+| Component | Reviewed version |
+| --- | --- |
+| Compatibility profile | `mermaid-12.0.0-plantuml-1.2026.9` |
+| Mermaid CLI / library | 12.0.0 / 12.2.0 |
+| PlantUML | 1.2026.9 |
+| Puppeteer / Chrome for Testing | 25.14.0 / 155.0.8059.79 |
+| Node | 24.21.0 |
+| Java | Temurin 25.0.4.1 LTS; required for modern PlantUML PDF export |
+| DOMPurify / KaTeX | 3.4.17 / 0.19.0 |
+| Style family | `benizar` |
+| Gallery | `docs/gallery/benizar/mermaid-12.0.0-plantuml-1.2026.9/manifest.csv` |
 
-## Current Release
+The new default requires a complete **zero-finding npm audit, without exceptions**.
+The gate also runs an offline, no-mount image probe that verifies the installed
+dependency lock, package versions and PlantUML JAR against the reviewed inputs.
+Historical audit exceptions remain records for their exact old tuples, not
+permissions to waive findings on the new renderer.
 
-| Release tag | Compatibility profile | Mermaid CLI | PlantUML | Families | Gallery |
-| --- | --- | --- | --- | --- | --- |
-| `v0.6.0` | `mermaid-11.16.0-plantuml-1.2026.1` | 11.16.0 | 1.2026.1 | `benizar` | `docs/gallery/benizar/mermaid-11.16.0-plantuml-1.2026.1/manifest.csv` |
-
-Badges for this release:
-
-```markdown
-![release](https://img.shields.io/badge/release-v0.6.0-2a5db0)
-![Mermaid CLI](https://img.shields.io/badge/Mermaid_CLI-11.16.0-ff3670)
-![PlantUML](https://img.shields.io/badge/PlantUML-1.2026.1-2a5db0)
-![family](https://img.shields.io/badge/family-benizar-2a5db0)
-```
-
-The 0.5.0 release added native runtime selection, provenance and freshness checks
-to the opt-in artifact producer introduced in 0.4.0. Engine versions, styles,
-gallery outputs and renderer image build inputs are unchanged. Historical 0.4.0
-bundles remain readable without their producing image being installed.
-
-0.6.0 adds live process identity, responsive busy/drain status and exact orphan
-recovery. Previous published packages/receipts remain unchanged. The real 0.5.0
-rollback point lacks the new live identity endpoint; its observation is partial
-and does not satisfy a second complete D0 live-identity release gate.
+The browser entry used by Mermaid CLI is rebuilt from Mermaid's published core
+with the locked DOMPurify and KaTeX versions. Updating npm's dependency tree alone
+does not replace libraries embedded in upstream browser bundles. The image keeps
+an esbuild 0.28.2 receipt binding 2,111 source inputs and 212 generated files; the
+offline probe verifies their hashes and versions as well as the npm tree.
 
 ## Published artifacts
 
-The publication channel is the
-[GitHub release](https://github.com/dosquartsdedocs/diavisuals/releases/tag/v0.6.0),
-as for 0.4.0. A bare PyPI package name is not the release reference. Assets are:
+Use the [GitHub release](https://github.com/dosquartsdedocs/diavisuals/releases/tag/v0.7.0),
+not an unqualified PyPI package name. Its immutable `release.json` binds the
+integrated source commit, artifact sizes/hashes, descriptors and tested runtime.
 
 | Asset | Purpose |
 | --- | --- |
-| `diavisuals-0.6.0-py3-none-any.whl` | Installable CLI/MCP package, including all runtime style/tool/profile assets. |
-| `diavisuals-0.6.0.tar.gz` | Source distribution. |
-| `diavisuals-render-v0.3.0-linux-amd64.tar.gz` | Docker archive of the unchanged, tested renderer. |
-| `mcp-factory-package.yml` | Exact installed native descriptor, also present in the wheel as `diavisuals/assets/mcp-factory.yml`. |
-| `acceptance.json` | Final-artifact acceptance receipt, tested identities and bounded compatibility points. |
-| `release.json` | Immutable Git revision, artifact hashes/sizes, producer source identity, runtime identity and capabilities. |
-| `SHA256SUMS` | SHA-256 checksums for the six assets above. |
+| `diavisuals-0.7.0-py3-none-any.whl` | Installable CLI/MCP with all package assets. |
+| `diavisuals-0.7.0.tar.gz` | Source distribution. |
+| `diavisuals-render-v0.7.0-linux-amd64.tar.gz` | Tested renderer Docker archive. |
+| `mcp-factory-package.yml` | Exact installed discovery descriptor. |
+| `mcp-job-storage.json` | Separate W1 provider declaration. |
+| `acceptance.json` | Final-artifact acceptance, evidence hashes and profile limits. |
+| `renderer-proof.json` / `npm-audit.json` | Installed-image identity proof and exact dependency audit. |
+| `release.json` / `SHA256SUMS` | Publication identity and complete checksum inventory. |
 
-The renderer's **Docker image ID** remains
-`sha256:5a6887b372a0e1c386a7b54981d11ae1910215baeb6a12dfd0706b3e85ef0846`.
-It is distributed as a Docker archive rather than an OCI registry reference:
-its archive SHA-256 is recorded separately in `release.json`. No registry
-`RepoDigest` is claimed. Loading the archive supplies the existing profile alias
-`diavisuals/render:v0.3.0`; rendering executes its immutable image ID.
-
-Its dependencies include one [owner-approved, exact-image audit exception](renderer-audit-exception-2026-09-30.md)
-for the low-severity DOMPurify advisory GHSA-p98j-92pf-mc4p. The dependency is
-not claimed patched; the release receipt preserves that scoped decision.
-
-Download into a new dedicated directory and verify before installation:
+The tested renderer's Docker image/config ID is
+`sha256:6eb15796cf394cd53df723e3278800b600dbf526f7d9f79b681ae0858c8f6501`.
+Its archive hash is a separate identity, recorded in `release.json`; no registry
+RepoDigest is claimed. Its alias is `diavisuals/render:v0.7.0`.
 
 ```bash
-gh release download v0.6.0 --repo dosquartsdedocs/diavisuals --dir /absolute/release-download
-# Run the remaining commands from /absolute/release-download.
+gh release download v0.7.0 --repo dosquartsdedocs/diavisuals --dir /absolute/release-download
+# From the download directory:
 sha256sum --check SHA256SUMS
-docker image load --input diavisuals-render-v0.3.0-linux-amd64.tar.gz
-docker image inspect diavisuals/render:v0.3.0 --format '{{.Id}}'
-uv tool install './diavisuals-0.6.0-py3-none-any.whl[mcp]'
-export DIAVISUALS_RUNTIME_IMAGE=sha256:5a6887b372a0e1c386a7b54981d11ae1910215baeb6a12dfd0706b3e85ef0846
+docker image load --input diavisuals-render-v0.7.0-linux-amd64.tar.gz
+docker image inspect diavisuals/render:v0.7.0 --format '{{.Id}}'
+uv tool install './diavisuals-0.7.0-py3-none-any.whl[mcp]'
+export DIAVISUALS_RUNTIME_IMAGE=sha256:6eb15796cf394cd53df723e3278800b600dbf526f7d9f79b681ae0858c8f6501
 diavisuals renderer-status
 diavisuals factory-check
 diavisuals mcp-smoke
 ```
 
-Require the inspected ID to equal the value above. A differing pre-existing
-profile alias must be reviewed before loading; retain any custom image under
-its own name. After this explicit bootstrap, normal `ensure-renderer`/`mcp-build`
-reuses the released image. Building an absent image from source is a development
-workflow, not the published-runtime acceptance proof. The archive supports
-Linux/amd64; no additional platform build is implied.
+Compare the inspected ID with the release manifest before activating it. A
+differing pre-existing alias requires explicit resolution. Ordinary launch and
+explicit runtime selection never pull, rebuild or retag an image. A source build
+is development preparation; it is not a substitute for downloaded-artifact proof.
+The published platform is Linux/amd64.
 
-For dependency pins, append `#sha256=<wheel hash from release.json>` to the
-wheel URL, record the release's full Git commit and keep the runtime archive
-hash plus image ID. `verify-release.yml` downloads the public assets on a fresh
-GitHub runner, checks hashes and the tagged commit, loads the archive, installs
-the wheel and exercises real MCP, both engines, retained-source replay and
-relocation. It can also be rerun with `workflow_dispatch` and the release tag.
+Existing stdio processes retain their loaded code. Start a normal fresh session
+after updating; a successful install does not hot-reload an old connection or
+activate a missing memory companion. Do not interrupt another busy client.
 
-The [2026-09-29 packaged-factory preparation report](owner-preparation-2026-09-29.md)
-records fresh published-wheel/sdist acceptance, the exact native descriptor and
-wheel/archive/image hashes, retained bundles, tested compatibility bounds and
-the pending gContExt H1 integration points.
+## Acceptance and publication
 
-## Maintainer publication
+1. Run `make check`, `make lint tests tests-mcp`, `make docker-test` and installed
+   wheel/sdist gates, including W1. Review the regenerated gallery and real PDF
+   output, not just successful process exit codes.
+2. Merge the reviewed source through normal PR/CI. Build final wheel/sdist from
+   the clean integrated commit. Keep the tested image ID; export that exact image
+   and record the resulting archive hash. Never replace a published old identity.
+3. Bind final installed evidence to those exact bytes in `acceptance.json` and
+   `release.json`; publish the annotated version tag and checksum-pinned assets.
+4. Require the cold downloaded-wheel/sdist workflow to pass. Return the exact
+   tuple and limits to coordinating consumers; do not silently update their pins.
 
-1. Run the owner/rollout checks in `docs/artifact-handoff-release.md`, including
-   installed-package and real Docker tests. Confirm unchanged renderer inputs
-   against the previous release and preserve the tested image ID.
-2. Merge reviewed release metadata through the protected-branch PR workflow.
-   Build wheel/sdist from that clean commit. Reuse and rehash the published 0.4.0
-   renderer archive (SHA-256 `de5d98d6bcff2f427e2ce83db6e7a14edaf6963d199483cb68674ab43d3d75e4`)
-   and recheck the local image ID. Do not rebuild, retag, or re-archive different
-   bytes under the retained runtime identity.
-3. Prepare `release.json` and checksums from actual artifact bytes. Create and push
-   the annotated version tag at the approved commit. Upload all assets to a draft
-   GitHub release, inspect them, then publish it. Never replace a published tag or
-   differing asset silently.
-4. Require the cold published-artifact workflow to pass before returning adoption
-   pins to Diapora, Unaltraweb or Unaltrepaper. Consumer dependency updates preserve
-   the full `mcp_dependencies` closure and retain the existing direct-render tools.
+W1's accepted native-private scope is directory retention on local Linux Docker,
+with monitored budgets. Shared-manager adoption, foreign-registry ownership
+transfer, remote Docker, hard quotas and compressed retention require separate
+tested adapters. The geoprocessing diagram type remains future work.
 
-## Legacy Compatibility Records
+## Historical releases
 
-`v0.2.0` used Mermaid CLI 11.4.2 and mounted the consumer workspace into the
-renderer. Upgrade to `v0.3.0` for supported Node/Puppeteer dependencies,
-private staging, and the hardened container boundary.
+| Release | Profile / renderer | Main change |
+| --- | --- | --- |
+| `v0.6.0` | `mermaid-11.16.0-plantuml-1.2026.1` / `v0.3.0` | Live D0 identity, busy/drain observation and exact orphan recovery. |
+| `v0.5.0` | Same retained renderer | Native runtime selection, provenance and freshness. |
+| `v0.4.0` | Same retained renderer | Opt-in retained leaf diagram bundles. |
+| `v0.3.x` | Same retained renderer | Private staging and hardened offline rendering. |
+| `v0.2.0` | `mermaid-11.4.2-plantuml-1.2026.1` | Historical consumer-mounted renderer. |
+| `v0.1.x` | `mermaid-10.9.1-plantuml-1.2020.02` | Historical Ubuntu-package-based renderer. |
 
-| Release | Compatibility profile | Mermaid CLI | PlantUML | Purpose |
-| --- | --- | --- | --- | --- |
-| `v0.2.0` | `mermaid-11.4.2-plantuml-1.2026.1` | 11.4.2 | 1.2026.1 | Records the first Docker renderer contract. |
-| `v0.1.x` | `mermaid-10.9.1-plantuml-1.2020.02` | 10.9.1 | 1.2020.02 | Documents the older Ubuntu-package-based paper image. |
+The published v0.3.0 image remains
+`sha256:5a6887b372a0e1c386a7b54981d11ae1910215baeb6a12dfd0706b3e85ef0846`,
+with archive hash `de5d98d6bcff2f427e2ce83db6e7a14edaf6963d199483cb68674ab43d3d75e4`.
+Older release assets and receipts are unchanged. Old-engine rollback reproduces
+its original output bytes; new-engine output is validated independently. The
+published 0.5.0 baseline lacks full live D0 identity and is reported as such.
 
-These profiles are record-only and cannot build a renderer from the current
-checkout. They are retained so consumers can compare what changed when
-upgrading engines.
+The [previous preparation report](owner-preparation-2026-09-29.md),
+[runtime-selection handoff](runtime-selection-report-2026-09-29.md) and
+[historical audit decision](renderer-audit-exception-2026-09-30.md) retain the
+identities and boundaries of those earlier publications.

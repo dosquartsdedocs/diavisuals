@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.7.0 - 2026-10-18
+
+- Add the explicit `diavisuals-private-directory-v1` W1 profile and installed `mcp-job-storage.json`, preserving consumer/Git policies and earlier artifact schemas.
+- Render Mermaid/PlantUML in distinct retained/scratch Docker volumes with authenticated job grants, CAS revisions, epochs, native process leases and exact D0 worker cleanup.
+- Retain inline/file sources, effective options, styles, original/edited SVGs, complete native v1 products and recovery evidence; expose bounded `job_storage` and `render_job_diagram` tools plus the `job` CLI.
+- Verify receiver-selected directory retention and current destination bytes before non-force exact-volume retirement. Preserve pending/unknown content, other clients and interrupted operations.
+- Enforce conservative per-registry reservations and monitored byte/entry/free-space budgets; hard quotas and shared-manager interoperability require separately verified profiles.
+- Add a separately pinned renderer with Mermaid CLI 12.0.0 / Mermaid 12.2.0, PlantUML 1.2026.9, Puppeteer 25.14.0 / Chrome 155, Node 24 and Temurin Java 25. Preserve the historical renderer/profile instead of replacing its identity.
+- Correct DOMPurify and KaTeX dependencies, rebuild Mermaid's actual browser entry from the audited libraries, and verify its full build inventory alongside the npm lock and PlantUML digest with a zero-exception audit.
+- Migrate to MCP SDK 2.3.0, retain legacy-client interoperability, refresh Python/build dependencies, and document the independent gaContExt memory integration.
+- Adapt PDF fitting, font-free SVG export and PlantUML participant styling; retain the classic `benizar` look and regenerate the new versioned gallery.
+
 ## 0.6.0 - 2026-10-05
 
 - Add bounded live MCP server identity and matching resource, including process instance/PID namespace, loaded code/version, startup versus current disk evidence, consumer binding and selected/observed runtime.

@@ -103,23 +103,23 @@ class ArtifactMCPTest(unittest.TestCase):
                 tools = {item.name: item for item in (await session.list_tools()).tools}
                 for name in ("initialize_artifact_export", "export_diagram_bundle", "check_diagram_bundle", "recover_diagram_bundle"):
                     self.assertIn(name, tools)
-                    self.assertNotIn("project_root", tools[name].inputSchema.get("properties", {}))
+                    self.assertNotIn("project_root", tools[name].input_schema.get("properties", {}))
                 dry = await session.call_tool("export_diagram_bundle", {"diagram_text": "flowchart LR\n A-->B", "dry_run": True})
-                self.assertFalse(dry.isError)
+                self.assertFalse(dry.is_error)
                 self.assertFalse((root / ".diavisuals").exists())
                 initialized = await session.call_tool("initialize_artifact_export", {})
-                self.assertFalse(initialized.isError)
+                self.assertFalse(initialized.is_error)
                 self.assertTrue((root / artifacts.STAGING_ROOT).is_dir())
                 invalid = await session.call_tool("export_diagram_bundle", {"input_path": "../escape.mmd"})
-                self.assertTrue(invalid.isError)
-                self.assertFalse(invalid.structuredContent["ok"])
+                self.assertTrue(invalid.is_error)
+                self.assertFalse(invalid.structured_content["ok"])
                 if os.environ.get("DIAVISUALS_DOCKER_SMOKE") == "1":
                     exported = await session.call_tool("export_diagram_bundle", {"diagram_text": "@startuml\nAlice -> Bob\n@enduml\n"})
-                    self.assertFalse(exported.isError, exported)
-                    payload = exported.structuredContent
+                    self.assertFalse(exported.is_error, exported)
+                    payload = exported.structured_content
                     payload = payload.get("result", payload)
                     checked = await session.call_tool("check_diagram_bundle", payload["bundle"])
-                    self.assertFalse(checked.isError, checked)
+                    self.assertFalse(checked.is_error, checked)
 
         with tempfile.TemporaryDirectory(prefix="diavisuals-mcp-bundle-") as temporary:
             asyncio.run(exercise(pathlib.Path(temporary)))

@@ -1,8 +1,8 @@
 # Native renderer selection
 
-This interface is provided by the **0.5.0 control plane**.
-Published 0.4.0 does not implement this selector. Engine images,
-style assets and the bytes of all published compatibility profiles are unchanged.
+This interface has been provided since the **0.5.0 control plane**.
+Published 0.4.0 does not implement this selector. Version 0.7.0 adds a new
+renderer/profile while retaining the bytes of published historical profiles.
 
 ## Select outside the profile
 
@@ -32,10 +32,10 @@ reads the environment. Python callers can pass a frozen
 rendering, export and project checks; `RuntimeSelection()` explicitly selects
 default-profile behavior without environment fallback.
 
-Example using the existing released renderer (no pull or tag change):
+Example using the 0.7.0 renderer after checksum-verified preparation:
 
 ```bash
-IMAGE=sha256:5a6887b372a0e1c386a7b54981d11ae1910215baeb6a12dfd0706b3e85ef0846
+IMAGE=sha256:6eb15796cf394cd53df723e3278800b600dbf526f7d9f79b681ae0858c8f6501
 diavisuals --runtime-image "$IMAGE" renderer-status
 diavisuals --runtime-image "$IMAGE" ensure-renderer
 diavisuals --project /absolute/synthetic-consumer --runtime-image "$IMAGE" \
@@ -46,8 +46,8 @@ For lifecycle/stdio launchers, set both environment variables from the verified
 installation selection (the expected ID can be omitted for a full image ID):
 
 ```bash
-export DIAVISUALS_RUNTIME_IMAGE=diavisuals/render:v0.3.0
-export DIAVISUALS_RUNTIME_EXPECTED_ID=sha256:5a6887b372a0e1c386a7b54981d11ae1910215baeb6a12dfd0706b3e85ef0846
+export DIAVISUALS_RUNTIME_IMAGE=diavisuals/render:v0.7.0
+export DIAVISUALS_RUNTIME_EXPECTED_ID=sha256:6eb15796cf394cd53df723e3278800b600dbf526f7d9f79b681ae0858c8f6501
 diavisuals ensure-renderer
 MCP_CONSUMER_WORKSPACE=/absolute/synthetic-consumer diavisuals mcp serve
 ```
@@ -99,10 +99,10 @@ environment selection, instead of independently executing the profile alias.
 Changing `DIAVISUALS_DIR` selects a different resource tree. Editing a profile in
 that tree changes its SHA-256; it is not a transparent override of the published
 runtime. Native image selection does not edit those bytes. For the released
-default profile, the unchanged SHA-256 is:
+default 0.7.0 profile, the SHA-256 is:
 
 ```text
-3d4e0ec5d3d646e68e14a9c549c338d11feb34b29d11e95b75b9f8c5fd2739ef
+950b4263ad637713c2bef9f3ee03332a6d74a0a8b0dbbebb42b4eafa766be9d9
 ```
 
 Successful direct render results expose `runtime` (mode, requested ref, expected
@@ -155,6 +155,15 @@ receipt/catalogue fields have been introduced. Consumers caching independently
 must include the effective runtime/resource identity in their own cache keys.
 
 ## Distribution and compatibility limits
+
+0.7.0 uses the separate `diavisuals/render:v0.7.0` publication tuple and the
+`mermaid-12.0.0-plantuml-1.2026.9` profile. Historical images, archives and profile
+bytes remain independently available. The live A → B → A gate checks old-engine
+rollback bytes and validates B on its newer engine; it does not assert identical
+SVG bytes across the engine upgrade. Select the historical profile explicitly
+when reproducing an older renderer contract.
+
+### Historical 0.5.0 adoption
 
 Control-plane **0.5.0** has new wheel/sdist/descriptor hashes; the published 0.4.0
 assets remain available separately. The existing renderer archive and image ID

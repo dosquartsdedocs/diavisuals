@@ -2,7 +2,7 @@ SHELL := /usr/bin/env bash
 UV ?= uv
 PROJECT ?= .
 OUT_DIR ?= dist/examples
-COMPAT_PROFILE ?= compat/mermaid-11.16.0-plantuml-1.2026.1.env
+COMPAT_PROFILE ?= compat/mermaid-12.0.0-plantuml-1.2026.9.env
 ENGINE ?= auto
 FAMILY ?= benizar
 FORMAT ?= svg
@@ -63,7 +63,7 @@ tests-install: mcp-env
 	@rm -rf .tmp/install-wheel .tmp/install-sdist dist
 	@$(UV) build
 	@$(UV) venv --python 3.10 .tmp/install-wheel >/dev/null
-	@$(UV) pip install --python .tmp/install-wheel/bin/python dist/*.whl 'mcp==1.29.0' >/dev/null
+	@$(UV) pip install --python .tmp/install-wheel/bin/python dist/*.whl 'mcp==2.3.0' >/dev/null
 	@set -euo pipefail; consumer="$$(mktemp -d)"; trap 'rm -rf "$$consumer"' EXIT; \
 	mkdir -p "$$consumer/assets/diagrams"; \
 	printf 'flowchart LR\n  A --> B\n' >"$$consumer/assets/diagrams/install.mmd"; \
@@ -73,9 +73,9 @@ tests-install: mcp-env
 	test -f "$$consumer/.unaltraweb/receipts/diavisuals.json"; \
 	.tmp/install-wheel/bin/diavisuals factory-check >/dev/null; \
 	.tmp/install-wheel/bin/diavisuals mcp-smoke >/dev/null
-	@DIAVISUALS_INSTALLED=1 DIAVISUALS_MCP_SMOKE=1 .tmp/install-wheel/bin/python -m unittest tests.test_artifacts tests.test_artifacts_runtime tests.test_runtime_selection tests.test_runtime_selection_docker tests.test_session tests.test_session_mcp tests.test_d0_acceptance
+	@DIAVISUALS_INSTALLED=1 DIAVISUALS_MCP_SMOKE=1 DIAVISUALS_W1_EVIDENCE="$${DIAVISUALS_W1_EVIDENCE:+$${DIAVISUALS_W1_EVIDENCE}/wheel}" .tmp/install-wheel/bin/python -m unittest tests.test_artifacts tests.test_artifacts_runtime tests.test_runtime_selection tests.test_runtime_selection_docker tests.test_session tests.test_session_mcp tests.test_d0_acceptance tests.test_job_storage tests.test_job_storage_docker
 	@$(UV) venv --python 3.10 .tmp/install-sdist >/dev/null
-	@$(UV) pip install --python .tmp/install-sdist/bin/python dist/*.tar.gz 'mcp==1.29.0' >/dev/null
+	@$(UV) pip install --python .tmp/install-sdist/bin/python dist/*.tar.gz 'mcp==2.3.0' >/dev/null
 	@set -euo pipefail; consumer="$$(mktemp -d)"; trap 'rm -rf "$$consumer"' EXIT; \
 	mkdir -p "$$consumer/assets/diagrams"; \
 	printf '@startuml\nAlice -> Bob\n@enduml\n' >"$$consumer/assets/diagrams/install.puml"; \
@@ -85,7 +85,7 @@ tests-install: mcp-env
 	test -f "$$consumer/.unaltraweb/receipts/diavisuals.json"; \
 	.tmp/install-sdist/bin/diavisuals factory-check >/dev/null; \
 	.tmp/install-sdist/bin/diavisuals mcp-smoke >/dev/null
-	@DIAVISUALS_INSTALLED=1 DIAVISUALS_MCP_SMOKE=1 .tmp/install-sdist/bin/python -m unittest tests.test_artifacts tests.test_artifacts_runtime tests.test_runtime_selection tests.test_runtime_selection_docker tests.test_session tests.test_session_mcp tests.test_d0_acceptance
+	@DIAVISUALS_INSTALLED=1 DIAVISUALS_MCP_SMOKE=1 DIAVISUALS_W1_EVIDENCE="$${DIAVISUALS_W1_EVIDENCE:+$${DIAVISUALS_W1_EVIDENCE}/sdist}" .tmp/install-sdist/bin/python -m unittest tests.test_artifacts tests.test_artifacts_runtime tests.test_runtime_selection tests.test_runtime_selection_docker tests.test_session tests.test_session_mcp tests.test_d0_acceptance tests.test_job_storage tests.test_job_storage_docker
 
 docker-build-renderer: mcp-env
 	@$(CLI) build-renderer --profile "$${COMPAT_PROFILE}" >/dev/null
@@ -104,7 +104,7 @@ mcp-check: check
 	@$(CLI) lifecycle-check --command "$${PWD}/$(CLI)" >/dev/null
 
 docker-test: docker-ensure-renderer
-	@DIAVISUALS_DOCKER_SMOKE=1 DIAVISUALS_MCP_SMOKE=1 $(PYTHON) -m unittest tests.test_docker_smoke tests.test_artifacts_runtime tests.test_runtime_selection_docker tests.test_d0_acceptance
+	@DIAVISUALS_DOCKER_SMOKE=1 DIAVISUALS_MCP_SMOKE=1 DIAVISUALS_W1_DOCKER=1 $(PYTHON) -m unittest tests.test_docker_smoke tests.test_artifacts_runtime tests.test_runtime_selection_docker tests.test_d0_acceptance tests.test_job_storage_docker
 
 mcp-smoke: tests-mcp docker-test
 

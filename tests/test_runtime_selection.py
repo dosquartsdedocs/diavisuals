@@ -93,7 +93,7 @@ class RuntimeSelectionTest(unittest.TestCase):
         self.assertTrue(result["ok"])
         self.assertTrue(result["built"])
         self.assertEqual(result["runtime"]["mode"], "profile")
-        self.assertEqual(build.call_args.args[0]["image"], "diavisuals/render:v0.3.0")
+        self.assertEqual(build.call_args.args[0]["image"], "diavisuals/render:v0.7.0")
 
     def test_missing_selection_fails_before_output_cache_or_export_state(self):
         source = self.root / "diagram.mmd"
@@ -185,7 +185,9 @@ class RuntimeSelectionTest(unittest.TestCase):
     def test_bundle_retains_unmodified_profile_and_checks_runtime_selection(self):
         profile_path = registry.repo_dir() / "compat" / f"{registry.DEFAULT_COMPATIBILITY}.env"
         original_profile = profile_path.read_bytes()
-        self.assertEqual(digest(original_profile), "3d4e0ec5d3d646e68e14a9c549c338d11feb34b29d11e95b75b9f8c5fd2739ef")
+        self.assertEqual(digest(original_profile), "950b4263ad637713c2bef9f3ee03332a6d74a0a8b0dbbebb42b4eafa766be9d9")
+        legacy_profile = registry.repo_dir() / "compat/mermaid-11.16.0-plantuml-1.2026.1.env"
+        self.assertEqual(digest(legacy_profile.read_bytes()), "3d4e0ec5d3d646e68e14a9c549c338d11feb34b29d11e95b75b9f8c5fd2739ef")
         with mock.patch.object(registry, "run", side_effect=self.inspect_command), mock.patch.object(registry, "_run_renderer", side_effect=self.fake_render):
             result = artifacts.export_diagram_bundle(self.root, diagram_text="flowchart LR\n A-->B", runtime=RuntimeSelection(B))
         self.assertTrue(result["ok"], result)

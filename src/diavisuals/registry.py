@@ -41,10 +41,10 @@ from .session import (
 )
 
 DEFAULT_RELEASE = f"v{__version__}"
-DEFAULT_COMPATIBILITY = "mermaid-11.16.0-plantuml-1.2026.1"
+DEFAULT_COMPATIBILITY = "mermaid-12.0.0-plantuml-1.2026.9"
 DEFAULT_FAMILY = "benizar"
 DEFAULT_REMOTE = "git@github.com:dosquartsdedocs/diavisuals.git"
-MCP_VERSION = "1.29.0"
+MCP_VERSION = "2.3.0"
 RENDERER_CONTAINER_LABEL = "io.context.mcp-factory=diavisuals"
 RENDERER_WORKSPACE_LABEL = "io.context.mcp-factory.workspace"
 HEX_COLOR_RE = re.compile(r"#[0-9A-Fa-f]{6}\b")
@@ -104,6 +104,8 @@ MAX_COMPANION_ARTIFACT_BYTES = 16 * 1024 * 1024
 MCP_TOOL_NAMES = (
     "server_identity",
     "release_session",
+    "job_storage",
+    "render_job_diagram",
     "style_inventory",
     "style_audit",
     "check_styles",
@@ -123,6 +125,7 @@ MCP_TOOL_NAMES = (
 )
 MCP_RESOURCE_URIS = (
     "diavisuals://server/identity",
+    "diavisuals://job-storage",
     "diavisuals://agent-guide",
     "diavisuals://styles",
     "diavisuals://compatibility",
@@ -427,7 +430,10 @@ def _build_renderer_image(renderer: dict[str, Any], root: pathlib.Path, *, dry_r
         context = pathlib.Path(temporary)
         shutil.copyfile(renderer["dockerfile_path"], context / "Dockerfile")
         docker_assets = pathlib.Path(renderer["dockerfile_path"]).parent
-        for package_file in ("package.json", "package-lock.json"):
+        build_assets = ["package.json", "package-lock.json"]
+        if (docker_assets / "rebundle.mjs").exists():
+            build_assets.append("rebundle.mjs")
+        for package_file in build_assets:
             source = docker_assets / package_file
             if not source.is_file() or source.is_symlink():
                 return {
@@ -2637,6 +2643,10 @@ def factory_check(project_root: str | pathlib.Path = ".") -> dict[str, Any]:
         assets / "docker/compat-renderer.Dockerfile",
         assets / "docker/package.json",
         assets / "docker/package-lock.json",
+        assets / "docker/current/compat-renderer.Dockerfile",
+        assets / "docker/current/package.json",
+        assets / "docker/current/package-lock.json",
+        assets / "docker/current/rebundle.mjs",
         assets / "tools/render-one.sh",
         assets / "styles/mermaid/benizar-mermaid.json",
         assets / "styles/plantuml/benizar-plantuml.puml",
@@ -2680,6 +2690,11 @@ def factory_check(project_root: str | pathlib.Path = ".") -> dict[str, Any]:
             issues.append(str(exc))
     styles = check_styles()
     issues.extend(styles["issues"])
+    try:
+        from .job_storage import declaration
+        declaration()
+    except (OSError, ValueError, KeyError, TypeError) as exc:
+        issues.append(f"job-storage companion: {exc}")
     root = pathlib.Path(project_root).expanduser().resolve()
     if not root.is_dir():
         issues.append(f"consumer project root does not exist: {project_root}")
@@ -2767,7 +2782,7 @@ def check_mcp_dependency(command_path: str) -> dict[str, Any]:
             python,
             "-c",
             "from importlib.metadata import version; "
-            "from mcp.server.fastmcp import FastMCP; print(version('mcp'))",
+            "from mcp.server.mcpserver import MCPServer; print(version('mcp'))",
         ],
         cwd=repo_dir(),
         timeout=30,

@@ -173,6 +173,10 @@ def _code_value(value: Any) -> Any:
         return {"bytes": value.hex()}
     if isinstance(value, complex):
         return {"complex": [value.real, value.imag]}
+    if isinstance(value, slice):
+        # Python 3.14 folds literal slices into co_consts. Preserve every bound
+        # structurally rather than using repr or dropping a code constant.
+        return {"slice": [_code_value(value.start), _code_value(value.stop), _code_value(value.step)]}
     if value is Ellipsis:
         return {"ellipsis": True}
     return value

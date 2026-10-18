@@ -17,7 +17,7 @@ from diavisuals.session import owner_state  # noqa: E402
 
 
 def tool_payload(result):
-    value = result.structuredContent
+    value = result.structured_content
     return value if "ok" in value else value["result"]
 
 
@@ -41,13 +41,36 @@ async def connect(python, root, *, environment=None, source=False):
 
 async def call(session, name, args=None):
     result = await session.call_tool(name, args or {})
-    if result.isError:
+    if result.is_error:
         raise AssertionError(result)
     return tool_payload(result)
 
 
 @unittest.skipUnless(os.environ.get("DIAVISUALS_MCP_SMOKE") == "1", "set DIAVISUALS_MCP_SMOKE=1")
 class SessionMCPTest(unittest.TestCase):
+    def test_modern_client_discovers_the_same_tools_and_typed_errors(self):
+        from mcp import Client, StdioServerParameters
+
+        async def exercise(root):
+            params = StdioServerParameters(command=str(pathlib.Path(sys.executable).parent / "diavisuals"), args=["mcp", "serve"],
+                                           env={**os.environ, "MCP_CONSUMER_WORKSPACE": str(root)})
+            async with Client(params, mode="auto") as client:
+                tools = {item.name for item in (await client.list_tools()).tools}
+                self.assertTrue({"server_identity", "job_storage", "render_job_diagram"} <= tools)
+                identity = await call(client, "server_identity")
+                self.assertEqual(identity["loaded"]["version"], __version__)
+                guide = await client.read_resource("diavisuals://agent-guide")
+                self.assertIn("Shared gaContExt memory", guide.contents[0].text)
+                self.assertIn("technical factory name `diavisuals`", guide.contents[0].text)
+                invalid = await client.call_tool("render_diagram", {"input_path": "../outside.mmd", "output_path": "chart.svg"})
+                self.assertTrue(invalid.is_error)
+                self.assertFalse(invalid.structured_content["ok"])
+                await call(client, "release_session", {"expected_instance_id": identity["instance"]["instance_id"]})
+            self.assertEqual(owner_state(identity["instance"]), "dead")
+
+        with tempfile.TemporaryDirectory(prefix="diavisuals-modern-client-") as temporary:
+            asyncio.run(exercise(pathlib.Path(temporary)))
+
     def test_live_pair_same_version_reconnect_drain_and_independent_consumer(self):
         async def exercise(base):
             roots = [base / "first", base / "second"]
@@ -68,12 +91,12 @@ class SessionMCPTest(unittest.TestCase):
                     self.assertNotEqual(before["instance"]["instance_id"], other_before["instance"]["instance_id"])
                     self.assertEqual(owner_state(before["instance"]), "alive")
                     wrong = await first.call_tool("release_session", {"expected_instance_id": other_before["instance"]["instance_id"]})
-                    self.assertTrue(wrong.isError)
+                    self.assertTrue(wrong.is_error)
                     drained = await call(first, "release_session", {"expected_instance_id": before["instance"]["instance_id"]})
                     self.assertEqual(drained["state"], "draining")
                     self.assertFalse(drained["process_release_verified"])
                     rejected = await first.call_tool("render_diagram_text", {"diagram_text": "flowchart LR\n A-->B", "dry_run": True})
-                    self.assertTrue(rejected.isError)
+                    self.assertTrue(rejected.is_error)
                 self.assertEqual(owner_state(before["instance"]), "dead")
                 self.assertEqual((await call(other, "server_identity"))["instance"], other_before["instance"])
                 async with connect(sys.executable, roots[0], source=source) as reconnected:
@@ -99,7 +122,7 @@ class SessionMCPTest(unittest.TestCase):
                 self.assertFalse(identity["renderer"]["ok"])
                 self.assertEqual(identity["renderer"]["selection"]["expected_image_id"], "sha256:" + "0" * 64)
                 result = await server.call_tool("render_diagram_text", {"diagram_text": "flowchart LR\n A-->B"})
-                self.assertTrue(result.isError)
+                self.assertTrue(result.is_error)
                 self.assertEqual((await call(server, "server_identity"))["instance"], identity["instance"])
             self.assertEqual(list(root.iterdir()), [])
 

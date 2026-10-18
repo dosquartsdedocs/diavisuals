@@ -24,15 +24,20 @@ Files under `compat/` describe the render engines and diagram types covered by a
 Current default profile:
 
 ```text
-compat/mermaid-11.16.0-plantuml-1.2026.1.env
+compat/mermaid-12.0.0-plantuml-1.2026.9.env
 ```
 
 It records:
 
-- Mermaid CLI: 11.16.0
-- PlantUML: 1.2026.1
+- Mermaid CLI: 12.0.0 (locked Mermaid library 12.2.0)
+- PlantUML: 1.2026.9
+- Puppeteer: 25.14.0, with its prepared Chrome; Java 25 LTS for PDF export
 - Family: `benizar`
-- Gallery manifest: `docs/gallery/benizar/mermaid-11.16.0-plantuml-1.2026.1/manifest.csv`
+- Gallery manifest: `docs/gallery/benizar/mermaid-12.0.0-plantuml-1.2026.9/manifest.csv`
+
+The published `mermaid-11.16.0-plantuml-1.2026.1` profile and `v0.3.0` renderer
+retain their original identities for deliberate reproduction/rollback. They are
+not the current security-audited default; new rendering uses the 0.7.0 tuple.
 
 The older `mermaid-10.9.1-plantuml-1.2020.02` and `mermaid-11.4.2-plantuml-1.2026.1` profiles remain as record-only compatibility history and cannot build renderers from the current checkout.
 
@@ -41,9 +46,9 @@ The older `mermaid-10.9.1-plantuml-1.2020.02` and `mermaid-11.4.2-plantuml-1.202
 Use README badges and release notes to show what a short tag contains. For example:
 
 ```markdown
-![release](https://img.shields.io/badge/release-v0.3.0-blue)
-![Mermaid CLI](https://img.shields.io/badge/Mermaid_CLI-11.16.0-ff3670)
-![PlantUML](https://img.shields.io/badge/PlantUML-1.2026.1-2a5db0)
+![release](https://img.shields.io/badge/release-v0.7.0-blue)
+![Mermaid CLI](https://img.shields.io/badge/Mermaid_CLI-12.0.0-ff3670)
+![PlantUML](https://img.shields.io/badge/PlantUML-1.2026.9-2a5db0)
 ```
 
 The badge text and `docs/releases.md` should be updated when a release changes engine versions, families, or guaranteed diagram types.

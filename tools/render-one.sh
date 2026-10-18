@@ -42,7 +42,13 @@ if [[ $engine == mermaid ]]; then
     -c "/diavisuals/styles/mermaid/${style_name}.json"
     -p "$puppeteer_config"
   )
-  if [[ $output_format == pdf ]]; then
+  mermaid_version=$(mmdc --version)
+  mermaid_major=${mermaid_version%%.*}
+  if [[ $mermaid_major -ge 12 ]]; then
+    # v12 fits PDF by default. Keep leaf SVGs within the existing font-free
+    # self-contained profile rather than implicitly introducing font resources.
+    command+=(--no-font-embed)
+  elif [[ $output_format == pdf ]]; then
     command+=(--pdfFit)
   fi
   "${command[@]}"

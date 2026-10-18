@@ -22,9 +22,13 @@ require_file tokens/benizar.yml
 require_file compat/mermaid-10.9.1-plantuml-1.2020.02.env
 require_file compat/mermaid-11.4.2-plantuml-1.2026.1.env
 require_file compat/mermaid-11.16.0-plantuml-1.2026.1.env
+require_file compat/mermaid-12.0.0-plantuml-1.2026.9.env
 require_file docker/compat-renderer.Dockerfile
 require_file docker/package.json
 require_file docker/package-lock.json
+require_file docker/current/compat-renderer.Dockerfile
+require_file docker/current/package.json
+require_file docker/current/package-lock.json
 require_file docs/versioning.md
 require_file docs/gallery.md
 require_file tools/render-gallery-docker.sh

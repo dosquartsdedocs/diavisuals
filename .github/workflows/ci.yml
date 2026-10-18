@@ -21,31 +21,31 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        python-version: ["3.10", "3.12"]
+        python-version: ["3.10", "3.12", "3.14"]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7.0.1
         with:
           persist-credentials: false
-      - uses: astral-sh/setup-uv@v7
+      - uses: astral-sh/setup-uv@v10.3.0
         with:
-          version: 0.12.5
+          version: 0.13.1
           python-version: ${{ matrix.python-version }}
           enable-cache: true
       - run: uv sync --locked --extra dev --extra mcp
       - run: make lint tests
-      - if: matrix.python-version == '3.12'
+      - if: matrix.python-version != '3.10'
         run: make tests-mcp
 
   package:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7.0.1
         with:
           persist-credentials: false
-      - uses: astral-sh/setup-uv@v7
+      - uses: astral-sh/setup-uv@v10.3.0
         with:
-          version: 0.12.5
+          version: 0.13.1
           python-version: "3.12"
           enable-cache: true
       - run: uv sync --locked --extra dev --extra mcp
@@ -53,17 +53,17 @@ jobs:
 
   docker:
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 90
     env:
       DIAVISUALS_PREVIOUS_PYTHON: ${{ github.workspace }}/.tmp/previous-0.5.0/bin/python
       DIAVISUALS_PREVIOUS_WHEEL: ${{ github.workspace }}/.tmp/previous-assets/diavisuals-0.5.0-py3-none-any.whl
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7.0.1
         with:
           persist-credentials: false
-      - uses: astral-sh/setup-uv@v7
+      - uses: astral-sh/setup-uv@v10.3.0
         with:
-          version: 0.12.5
+          version: 0.13.1
           python-version: "3.12"
           enable-cache: true
       - run: uv sync --locked --extra dev --extra mcp
@@ -78,7 +78,7 @@ jobs:
             "$DIAVISUALS_PREVIOUS_WHEEL" | sha256sum --check
           uv venv --python 3.12 .tmp/previous-0.5.0
           uv pip install --python "$DIAVISUALS_PREVIOUS_PYTHON" "$DIAVISUALS_PREVIOUS_WHEEL[mcp]"
-      - name: Reuse the verified published renderer
+      - name: Prepare the unchanged historical renderer for rollback proof
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -90,15 +90,32 @@ jobs:
           docker image load --input .tmp/published-renderer/diavisuals-render-v0.3.0-linux-amd64.tar.gz
           test "$(docker image inspect diavisuals/render:v0.3.0 --format '{{.Id}}')" = \
             sha256:5a6887b372a0e1c386a7b54981d11ae1910215baeb6a12dfd0706b3e85ef0846
-      - name: Audit renderer dependencies with the exact approved exception
+      - name: Prepare the new renderer
+        run: make mcp-build
+      - name: Require a clean audit and prove the installed renderer matches its lock
         run: |
           set -euo pipefail
           audit_exit=0
-          npm audit --omit=dev --json --prefix docker > .tmp/npm-audit.json || audit_exit=$?
-          .venv/bin/python tools/check-renderer-audit.py .tmp/npm-audit.json \
+          npm audit --omit=dev --json --prefix docker/current > .tmp/npm-audit.json || audit_exit=$?
+          .venv/bin/python tools/check-current-renderer-audit.py .tmp/npm-audit.json \
             --audit-exit-code "$audit_exit" \
-            --image-id "$(docker image inspect diavisuals/render:v0.3.0 --format '{{.Id}}')"
+            --image-id "$(docker image inspect diavisuals/render:v0.7.0 --format '{{.Id}}')" > .tmp/renderer-proof.json
+      - name: Retain the exact renderer audit for owner review
+        uses: actions/upload-artifact@v7.0.2
+        if: always()
+        with:
+          name: renderer-audit
+          path: |
+            .tmp/npm-audit.json
+            .tmp/renderer-proof.json
       - run: make docker-test
+      - name: Prove W1 from both non-editable distributions
+        run: DIAVISUALS_W1_DOCKER=1 DIAVISUALS_W1_EVIDENCE="$RUNNER_TEMP/w1-evidence" make tests-install
+      - uses: actions/upload-artifact@v7.0.2
+        if: always()
+        with:
+          name: w1-installed-evidence
+          path: ${{ runner.temp }}/w1-evidence
       - run: DIAVISUALS_MCP_SMOKE=1 .venv/bin/python -m unittest tests.test_registry.RegistryTest.test_plantuml_renderer_blocks_workspace_includes_when_enabled
       - run: make render-gallery
       - run: git diff --exit-code -- docs/gallery

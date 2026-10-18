@@ -42,6 +42,11 @@ make_plantuml_readme_source() {
 printf 'engine,type,status,output\n' > "$out_dir/manifest.csv"
 
 if command -v mmdc >/dev/null 2>&1; then
+  mermaid_options=()
+  mermaid_version=$(mmdc --version)
+  if [[ ${mermaid_version%%.*} -ge 12 ]]; then
+    mermaid_options+=(--no-font-embed)
+  fi
   mermaid_sources=("examples/$family/mermaid/"*.mmd)
   if [[ ${#mermaid_sources[@]} -eq 0 ]]; then
     printf 'no Mermaid examples found for family: %s\n' "$family" >&2
@@ -60,10 +65,10 @@ if command -v mmdc >/dev/null 2>&1; then
     styled=".cache/mermaid/${name}.mmd"
     output="$out_dir/mermaid/${name}.svg"
     tools/style-diagram-source.sh mermaid "$mermaid_style" "$src" "$styled"
-    mmdc -i "$styled" -o "$output" -c "$mermaid_config" -p "$puppeteer_config" >/dev/null
+    mmdc -i "$styled" -o "$output" -c "$mermaid_config" -p "$puppeteer_config" "${mermaid_options[@]}" >/dev/null
     python3 "$repo_root/tools/normalize-mermaid-svg.py" "$output"
     if contains_type "$name" "$readme_mermaid_types"; then
-      mmdc -i "$styled" -o "$out_dir/readme/mermaid-${name}.png" -c "$mermaid_config" -p "$puppeteer_config" --scale 1 >/dev/null
+      mmdc -i "$styled" -o "$out_dir/readme/mermaid-${name}.png" -c "$mermaid_config" -p "$puppeteer_config" "${mermaid_options[@]}" --scale 1 >/dev/null
     fi
     write_manifest mermaid "$name" rendered "$output"
   done
