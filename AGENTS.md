@@ -24,6 +24,21 @@ This repository is a reusable, user-scoped MCP factory for diagram style assets 
 
 The smoke test stays in this repository because only `diavisuals` knows what a meaningful minimal style proof is. gContExt invokes `commands.smoke`, stores the latest result in its smoke status cache, and disables the generated switch only when the last known smoke state is `failed`.
 
+The source and installed smoke execute the same two small real SVG renders using
+the prepared selected runtime. Historical-version and W1 regression suites belong
+to explicit test/CI targets. `mcp-smoke --protocol-only` is a partial diagnostic,
+never the advertised factory smoke. Smoke does not prepare software or inherit a
+consumer's private job grant.
+
+## Common runtime convergence
+
+Follow gaContExt #30/#31: managed controls come from versioned canonical scaffold
+assets; generic runtime/client/worker behavior belongs to the common SDK dependency.
+Keep provider code focused on diagram execution, styles and domain completeness.
+The published native-private W1 profile is a migration input. Confirm the common
+API and distribution before adopting it; missing fenced controls must be resolved
+upstream rather than emulated with another provider ledger or lock.
+
 Consumers should call this MCP from the workspace where slides, papers, or documentation are being produced; generated artefacts and project-specific decisions belong in the consumer repository.
 
 ## Shared gaContExt memory

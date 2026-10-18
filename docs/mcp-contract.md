@@ -126,6 +126,31 @@ to the startup workspace.
 
 ## gContExt Discovery
 
+### Factory smoke and acceptance
+
+`make mcp-smoke` and the installed `diavisuals mcp-smoke` have the same contract:
+discover the native MCP tools/resources, read the style inventory, and render one
+small Mermaid SVG and one PlantUML SVG with the already prepared selected runtime.
+The probe uses its own empty temporary workspace, validates both output files,
+and does not forward consumer W1 grants. It does not build, pull or install.
+Use `mcp-build`/explicit preparation first; a missing runtime fails the real smoke.
+
+This follows the common lifecycle at gaContExt revision
+`209c101ae25fc2a0b73c867c1667dc6bde2c5213`, README lines 657–668: a Docker provider's
+smoke exercises a real useful workflow. It does not require old release images,
+regression fixtures or a consumer project. Full lifecycle, rollback, security and
+W1 acceptance remain in `tests-mcp`, `docker-test` and installed CI gates.
+
+`diavisuals mcp-smoke --protocol-only` is explicitly partial: it checks discovery,
+style tooling and render planning but returns `runtime_verified: false`. It is
+used by fast protocol/package tests without Docker, not by `commands.smoke`.
+Both modes retain the selected native image-ref/expected-ID behavior and the
+existing JSON result fields; the result identifies its scope and per-engine checks.
+
+Shared runtime convergence is coordinated in gaContExt #30/#31. These native
+smoke repairs introduce no new common schema, lifecycle implementation or storage
+policy and do not imply adoption of the shared SDK.
+
 External launchers can scan sibling Git repositories for `mcp-factory.yml`.
 The checkout manifest runs build, check, tests, and smoke in the factory and
 passes `${workspaceFolder}` only to project operations such as init, stdio

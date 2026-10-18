@@ -32,7 +32,7 @@ help:
 	@printf "  make mcp-build        Prepare the factory environment and renderer image\n"
 	@printf "  make mcp-init         Initialize the selected PROJECT cache\n"
 	@printf "  make mcp-check        Validate the factory lifecycle\n"
-	@printf "  make mcp-smoke        Run factory MCP plus Docker renderer smokes\n"
+	@printf "  make mcp-smoke        Run a minimal real workflow using the prepared MCP/renderer\n"
 	@printf "  make mcp-down         Remove renderer containers for PROJECT only\n"
 	@printf "  make mcp-stdio        Serve the MCP for MCP_CONSUMER_WORKSPACE (or PROJECT)\n"
 	@printf "  make project-check    Check PROJECT diagrams and publish its receipt\n"
@@ -54,10 +54,11 @@ tests: mcp-env check
 test: tests
 
 tests-mcp: mcp-env
-	@$(CLI) mcp-smoke >/dev/null
+	@$(CLI) mcp-smoke --protocol-only >/dev/null
 	@DIAVISUALS_MCP_SMOKE=1 DIAVISUALS_MCP_FACTORY_ROOT="$${PWD}" $(PYTHON) -m unittest tests.test_registry.RegistryTest.test_mcp_stdio_smoke_when_enabled
 	@DIAVISUALS_MCP_SMOKE=1 $(PYTHON) -m unittest tests.test_artifacts_runtime.ArtifactMCPTest
 	@DIAVISUALS_MCP_SMOKE=1 $(PYTHON) -m unittest tests.test_session_mcp
+	@DIAVISUALS_MCP_SMOKE=1 $(PYTHON) -m unittest tests.test_smoke.SmokeProtocolTest
 
 tests-install: mcp-env
 	@rm -rf .tmp/install-wheel .tmp/install-sdist dist
@@ -72,8 +73,9 @@ tests-install: mcp-env
 	.tmp/install-wheel/bin/diavisuals --project "$$consumer" project-check >/dev/null; \
 	test -f "$$consumer/.unaltraweb/receipts/diavisuals.json"; \
 	.tmp/install-wheel/bin/diavisuals factory-check >/dev/null; \
-	.tmp/install-wheel/bin/diavisuals mcp-smoke >/dev/null
-	@DIAVISUALS_INSTALLED=1 DIAVISUALS_MCP_SMOKE=1 DIAVISUALS_W1_EVIDENCE="$${DIAVISUALS_W1_EVIDENCE:+$${DIAVISUALS_W1_EVIDENCE}/wheel}" .tmp/install-wheel/bin/python -m unittest tests.test_artifacts tests.test_artifacts_runtime tests.test_runtime_selection tests.test_runtime_selection_docker tests.test_session tests.test_session_mcp tests.test_d0_acceptance tests.test_job_storage tests.test_job_storage_docker
+	if [[ "$${DIAVISUALS_DOCKER_SMOKE:-0}" == 1 ]]; then .tmp/install-wheel/bin/diavisuals mcp-smoke >/dev/null; \
+	else .tmp/install-wheel/bin/diavisuals mcp-smoke --protocol-only >/dev/null; fi
+	@DIAVISUALS_INSTALLED=1 DIAVISUALS_MCP_SMOKE=1 DIAVISUALS_W1_EVIDENCE="$${DIAVISUALS_W1_EVIDENCE:+$${DIAVISUALS_W1_EVIDENCE}/wheel}" .tmp/install-wheel/bin/python -m unittest tests.test_artifacts tests.test_artifacts_runtime tests.test_runtime_selection tests.test_runtime_selection_docker tests.test_session tests.test_session_mcp tests.test_d0_acceptance tests.test_job_storage tests.test_job_storage_docker tests.test_smoke
 	@$(UV) venv --python 3.10 .tmp/install-sdist >/dev/null
 	@$(UV) pip install --python .tmp/install-sdist/bin/python dist/*.tar.gz 'mcp==2.3.0' >/dev/null
 	@set -euo pipefail; consumer="$$(mktemp -d)"; trap 'rm -rf "$$consumer"' EXIT; \
@@ -84,8 +86,9 @@ tests-install: mcp-env
 	.tmp/install-sdist/bin/diavisuals --project "$$consumer" project-check >/dev/null; \
 	test -f "$$consumer/.unaltraweb/receipts/diavisuals.json"; \
 	.tmp/install-sdist/bin/diavisuals factory-check >/dev/null; \
-	.tmp/install-sdist/bin/diavisuals mcp-smoke >/dev/null
-	@DIAVISUALS_INSTALLED=1 DIAVISUALS_MCP_SMOKE=1 DIAVISUALS_W1_EVIDENCE="$${DIAVISUALS_W1_EVIDENCE:+$${DIAVISUALS_W1_EVIDENCE}/sdist}" .tmp/install-sdist/bin/python -m unittest tests.test_artifacts tests.test_artifacts_runtime tests.test_runtime_selection tests.test_runtime_selection_docker tests.test_session tests.test_session_mcp tests.test_d0_acceptance tests.test_job_storage tests.test_job_storage_docker
+	if [[ "$${DIAVISUALS_DOCKER_SMOKE:-0}" == 1 ]]; then .tmp/install-sdist/bin/diavisuals mcp-smoke >/dev/null; \
+	else .tmp/install-sdist/bin/diavisuals mcp-smoke --protocol-only >/dev/null; fi
+	@DIAVISUALS_INSTALLED=1 DIAVISUALS_MCP_SMOKE=1 DIAVISUALS_W1_EVIDENCE="$${DIAVISUALS_W1_EVIDENCE:+$${DIAVISUALS_W1_EVIDENCE}/sdist}" .tmp/install-sdist/bin/python -m unittest tests.test_artifacts tests.test_artifacts_runtime tests.test_runtime_selection tests.test_runtime_selection_docker tests.test_session tests.test_session_mcp tests.test_d0_acceptance tests.test_job_storage tests.test_job_storage_docker tests.test_smoke
 
 docker-build-renderer: mcp-env
 	@$(CLI) build-renderer --profile "$${COMPAT_PROFILE}" >/dev/null
@@ -104,9 +107,11 @@ mcp-check: check
 	@$(CLI) lifecycle-check --command "$${PWD}/$(CLI)" >/dev/null
 
 docker-test: docker-ensure-renderer
-	@DIAVISUALS_DOCKER_SMOKE=1 DIAVISUALS_MCP_SMOKE=1 DIAVISUALS_W1_DOCKER=1 $(PYTHON) -m unittest tests.test_docker_smoke tests.test_artifacts_runtime tests.test_runtime_selection_docker tests.test_d0_acceptance tests.test_job_storage_docker
+	@DIAVISUALS_DOCKER_SMOKE=1 DIAVISUALS_MCP_SMOKE=1 DIAVISUALS_W1_DOCKER=1 $(PYTHON) -m unittest tests.test_docker_smoke tests.test_artifacts_runtime tests.test_runtime_selection_docker tests.test_d0_acceptance tests.test_job_storage_docker tests.test_smoke.SmokeDockerTest
 
-mcp-smoke: tests-mcp docker-test
+mcp-smoke:
+	@test -x "$(CLI)" || { printf 'Prepare Diavisuals first: make mcp-build\n' >&2; exit 2; }
+	@"$(CLI)" mcp-smoke
 
 mcp-down:
 	@$(CLI) --project "$${PROJECT}" down >/dev/null
