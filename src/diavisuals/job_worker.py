@@ -184,7 +184,10 @@ def run_diagram(request):
         configuration = temp / "puppeteer.json"
         configuration.write_bytes(json_bytes({"userDataDir": str(temp / "chrome"), "args": ["--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage", "--disable-crash-reporter", "--disable-crashpad"]}))
         command = ["mmdc", "-i", str(styled), "-o", str(output), "-c", str(resources / f"styles/mermaid/{style}.json"), "-p", str(configuration)]
-        if output_format == "pdf":
+        version = subprocess.run(["mmdc", "--version"], env=environment, capture_output=True, text=True, check=True, timeout=15).stdout.strip()
+        if int(version.split(".")[0]) >= 12:
+            command.append("--no-font-embed")
+        elif output_format == "pdf":
             command.append("--pdfFit")
     else:
         command = ["plantuml", f"-t{output_format}", "-o", str(output_root), str(styled)]

@@ -130,8 +130,8 @@ class RuntimeSelectionDockerTest(unittest.TestCase):
                             ("export_diagram_bundle", {"diagram_text": sources["mermaid"][1]}),
                         ):
                             rejected = await bad_session.call_tool(tool, arguments)
-                            self.assertTrue(rejected.isError, rejected)
-                            self.assertFalse(rejected.structuredContent["ok"])
+                            self.assertTrue(rejected.is_error, rejected)
+                            self.assertFalse(rejected.structured_content["ok"])
                         self.assertFalse((root / ".diavisuals").exists())
                         for image in (base_image, fixture):
                             parameters = StdioServerParameters(command=sys.executable, args=["-m", "diavisuals.cli", "mcp", "serve"],
@@ -144,8 +144,8 @@ class RuntimeSelectionDockerTest(unittest.TestCase):
                         for index, (image, session) in enumerate(sessions):
                             async def call(tool, arguments):
                                 result = await session.call_tool(tool, arguments)
-                                self.assertFalse(result.isError, result)
-                                payload = result.structuredContent
+                                self.assertFalse(result.is_error, result)
+                                payload = result.structured_content
                                 if "ok" not in payload:
                                     payload = payload.get("result", payload)
                                 records["calls"].append({"mcp_image": image, "tool": tool, "result": payload})

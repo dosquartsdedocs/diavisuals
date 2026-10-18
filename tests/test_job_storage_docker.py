@@ -332,8 +332,8 @@ class StorageDockerTests(unittest.TestCase):
             **os.environ, "MCP_CONSUMER_WORKSPACE": str(self.consumer), storage.CONTEXT_ENV: str(self.manager.root / (job_id + ".grant.json"))})
 
         def payload(result):
-            self.assertFalse(result.isError, result)
-            value = result.structuredContent
+            self.assertFalse(result.is_error, result)
+            value = result.structured_content
             return value.get("result", value)
 
         async def exercise():
@@ -348,9 +348,9 @@ class StorageDockerTests(unittest.TestCase):
                            "registry_id": client.grant["registry_id"], "job_id": job_id}
                 state = payload(await session.call_tool("job_storage", {"request": request}))
                 invalid = await session.call_tool("job_storage", {"request": {**request, "expected_epoch": state["epoch"]}})
-                self.assertTrue(invalid.isError)
+                self.assertTrue(invalid.is_error)
                 legacy = await session.call_tool("render_diagram_text", {"diagram_text": "flowchart LR\nA-->B"})
-                self.assertTrue(legacy.isError)
+                self.assertTrue(legacy.is_error)
                 result = payload(await session.call_tool("render_job_diagram", {"diagram_text": "flowchart LR\nA-->B",
                                  "expected_revision": state["revision"], "expected_epoch": state["epoch"]}))
                 self.assertTrue(result["ok"])

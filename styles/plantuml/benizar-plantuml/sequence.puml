@@ -1,5 +1,9 @@
 ' Sequence-specific style overrides for benizar preset.
 ' Keep this file small and focused on sequence diagrams only.
 
-skinparam ParticipantPadding 18
+<style>
+participant {
+  Padding 18
+}
+</style>
 skinparam BoxPadding 10

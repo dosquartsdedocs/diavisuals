@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-profile=${1:-compat/mermaid-11.16.0-plantuml-1.2026.1.env}
+profile=${1:-compat/mermaid-12.0.0-plantuml-1.2026.9.env}
 repo_root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 cd "$repo_root"
 

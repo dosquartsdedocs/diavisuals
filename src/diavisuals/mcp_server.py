@@ -5,7 +5,7 @@ import pathlib
 from contextlib import asynccontextmanager
 from typing import Any
 
-from . import artifacts
+from . import __version__, artifacts
 from . import job_storage as storage
 from . import registry as core
 from .session import CURRENT_SESSION, ServerSession
@@ -32,7 +32,7 @@ def run_server(project: pathlib.Path, *, runtime: core.RuntimeSelection | None =
     store = storage.selected(consumer_root) if os.environ.get(storage.CONTEXT_ENV) else None
     interest = store.client_attach() if store else None
     try:
-        from mcp.server.fastmcp import FastMCP
+        from mcp.server.mcpserver import MCPServer
         from mcp.types import CallToolResult, TextContent
     except ImportError as exc:  # pragma: no cover - optional runtime dependency
         raise SystemExit(
@@ -49,14 +49,14 @@ def run_server(project: pathlib.Path, *, runtime: core.RuntimeSelection | None =
                 store.client_detach(interest["lease_id"])
             instance.close()
 
-    mcp = FastMCP("diavisuals", lifespan=lifespan)
+    mcp = MCPServer("diavisuals", version=__version__, lifespan=lifespan)
 
     def require_ok(payload: dict[str, Any]) -> Any:
         if payload.get("ok") is not True:
             return CallToolResult(
                 content=[TextContent(type="text", text=core.json_dumps(payload))],
-                structuredContent=payload,
-                isError=True,
+                structured_content=payload,
+                is_error=True,
             )
         return payload
 

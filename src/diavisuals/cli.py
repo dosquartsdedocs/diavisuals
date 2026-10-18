@@ -59,10 +59,10 @@ def print_payload(payload: Any) -> None:
 
 
 def _tool_result_ok(result: Any) -> bool:
-    if result.isError:
+    if result.is_error:
         return False
     candidates: list[Any] = []
-    structured = getattr(result, "structuredContent", None)
+    structured = getattr(result, "structured_content", None)
     if structured is not None:
         candidates.append(structured)
     for item in result.content:

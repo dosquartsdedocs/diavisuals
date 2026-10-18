@@ -25,3 +25,17 @@ This repository is a reusable, user-scoped MCP factory for diagram style assets 
 The smoke test stays in this repository because only `diavisuals` knows what a meaningful minimal style proof is. gContExt invokes `commands.smoke`, stores the latest result in its smoke status cache, and disables the generated switch only when the last known smoke state is `failed`.
 
 Consumers should call this MCP from the workspace where slides, papers, or documentation are being produced; generated artefacts and project-specific decisions belong in the consumer repository.
+
+## Shared gaContExt memory
+
+When the companion gaContExt memory tools are connected, recall context with the
+technical factory name `diavisuals` at task start and review its backlog before
+development. Record reusable user preferences and future diagram ideas in their
+appropriate scope, with concise provenance. Keep tentative ideas candidate/open
+until the user supplies or approves their requirements. Use the selected original
+consumer's project binding for project-specific notes, not a Docker job root.
+
+Memory is supplied independently by gaContExt; upgrading this package does not
+install or activate a memory server. If it is unavailable, continue the diagram
+task and report that persistence did not happen. Do not create a second local
+memory store, export memory into diagram bundles, or restart another busy client.

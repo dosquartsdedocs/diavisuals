@@ -78,6 +78,9 @@ def validate_gallery(result: pathlib.Path, family: str, compatibility: str) -> N
             root = ET.parse(artifact).getroot()
             if root.tag.rsplit("}", 1)[-1].lower() != "svg":
                 raise ValueError(f"gallery output is not an SVG: {relative}")
+            labels = [" ".join("".join(node.itertext()).split()) for node in root.iter() if node.tag.rsplit("}", 1)[-1] == "text"]
+            if any("is ignored: use a style instead" in text or "Syntax Error?" in text for text in labels):
+                raise ValueError(f"renderer diagnostic embedded in gallery: {relative}")
             actual_svgs.add(relative)
             continue
         if relative.suffix == ".png" and relative.parts[0] == "readme":

@@ -51,6 +51,9 @@ class D0AcceptanceTest(unittest.TestCase):
         with pathlib.Path(self.records["docker_executable"]).open("rb") as binary:
             self.assertEqual(binary.read(4), b"\x7fELF", "real Linux Docker binary required, not a test wrapper")
         self.assertEqual(self.docker("image", "inspect", "--format", "{{.Id}}", "diavisuals/render:v0.3.0"), IMAGE)
+        self.current_image = registry.renderer_status()["image_id"]
+        self.assertTrue(registry.DOCKER_IMAGE_ID_RE.fullmatch(self.current_image))
+        self.records["current_image_id"] = self.current_image
         self.before_sources = source_snapshot(pathlib.Path(registry.__file__).parent)
         self.before_package = package_snapshot(pathlib.Path(registry.__file__).parent)
         self.before_metadata = distribution_snapshot()
@@ -95,7 +98,7 @@ class D0AcceptanceTest(unittest.TestCase):
         path = directory / "guard.json"
         path.write_text(json.dumps(configuration))
         return {"PYTHONPATH": str(directory), "DIAVISUALS_TEST_GUARD": str(path),
-                "DIAVISUALS_RUNTIME_IMAGE": IMAGE, "DOCKER_HOST": "unix:///var/run/docker.sock", "DOCKER_CONTEXT": "default"}, marker
+                "DIAVISUALS_RUNTIME_IMAGE": IMAGE if old else self.current_image, "DOCKER_HOST": "unix:///var/run/docker.sock", "DOCKER_CONTEXT": "default"}, marker
 
     def retain(self):
         self.assertEqual(source_snapshot(pathlib.Path(registry.__file__).parent), self.before_sources)
@@ -150,7 +153,7 @@ class D0AcceptanceTest(unittest.TestCase):
                     task = asyncio.create_task(call(worker, "render_diagram_text", {"diagram_text": LONG_SOURCE, "include_data": False}))
                     busy = await self.wait_worker(worker, task)
                     rejected = await worker.call_tool("release_session", {"expected_instance_id": busy["instance"]["instance_id"]})
-                    self.assertTrue(rejected.isError)
+                    self.assertTrue(rejected.is_error)
                     live_release = self.lifecycle_cli(worker_root, busy, ids=[busy["lifecycle"]["jobs"][0]["container_id"]], ok=False)
                     self.assertFalse(live_release["ok"])
                     self.assertEqual(live_release["owner_state"], "alive")
@@ -219,6 +222,37 @@ class D0AcceptanceTest(unittest.TestCase):
         self.old_wheel = old_wheel
         self.verify_old_installation()
 
+        # A real SDK-1 client also connects to the SDK-2 server. This protects
+        # existing host/companion sessions while our own clients migrate.
+        legacy_client = """
+import asyncio, importlib.metadata, json, os, sys
+from mcp import ClientSession, StdioServerParameters
+from mcp.client.stdio import stdio_client
+async def main():
+    params = StdioServerParameters(command=sys.argv[1], args=['mcp','serve'], env={**os.environ,'MCP_CONSUMER_WORKSPACE':sys.argv[2]})
+    async with stdio_client(params) as (read,write), ClientSession(read,write) as session:
+        initialized = await session.initialize()
+        result = await session.call_tool('server_identity', {})
+        assert not result.isError
+        identity = result.structuredContent
+        identity = identity.get('result', identity)
+        assert initialized.serverInfo.version == identity['loaded']['version']
+        guide = await session.read_resource('diavisuals://agent-guide')
+        assert 'Shared gaContExt memory' in guide.contents[0].text
+        rejected = await session.call_tool('render_diagram', {'input_path':'../outside.mmd','output_path':'outside.svg'})
+        assert rejected.isError and rejected.structuredContent['ok'] is False
+        released = await session.call_tool('release_session', {'expected_instance_id':identity['instance']['instance_id']})
+        assert not released.isError
+    print(json.dumps({'client_sdk':importlib.metadata.version('mcp'),'server':identity,'typed_error':True}))
+asyncio.run(main())
+"""
+        env = {key: value for key, value in os.environ.items() if key not in {"PYTHONPATH", "DIAVISUALS_DIR", "DIAVISUALS_JOB_STORAGE_GRANT"}}
+        checked = subprocess.run([old_python, "-c", legacy_client, str(pathlib.Path(sys.executable).parent / "diavisuals"),
+                                  str(self.consumer("sdk1-client"))], env=env, capture_output=True, text=True, timeout=60)
+        self.assertEqual(checked.returncode, 0, checked.stderr)
+        self.records["checks"]["sdk1_client_to_sdk2_server"] = json.loads(checked.stdout)
+        self.assertEqual(self.records["checks"]["sdk1_client_to_sdk2_server"]["client_sdk"], "1.29.0")
+
         async def exercise():
             root, other_root = self.consumer("activation"), self.consumer("unaffected")
             authored = {path.name: digest(path) for path in root.iterdir()}
@@ -246,10 +280,14 @@ class D0AcceptanceTest(unittest.TestCase):
                                                                              "original_path": "original.svg", "edited_paths": ["authored.edited.svg"]})
                         self.assertEqual(bundle["producer"]["version"], version)
                         await call(active, "check_diagram_bundle", bundle["bundle"])
-                        stages.append({"version": version, "identity": identity, "svg_sha256": digest(root / "original.svg"), "bundle": bundle["bundle"]})
+                        stages.append({"version": version, "identity": identity, "image_id": IMAGE if old else self.current_image,
+                                       "svg_sha256": digest(root / "original.svg"), "bundle": bundle["bundle"]})
                     self.assertEqual((await call(other, "server_identity"))["instance"], other_before["instance"])
                     self.assertEqual({name: digest(root / name) for name in authored}, authored)
-                self.assertEqual(len({stage["svg_sha256"] for stage in stages}), 1)
+                # The new release deliberately upgrades the engines. Rollback
+                # reproduces the original A bytes; B is independently validated.
+                self.assertEqual(stages[0]["svg_sha256"], stages[2]["svg_sha256"])
+                self.assertNotEqual(stages[0]["image_id"], stages[1]["image_id"])
                 self.records["checks"]["actual_version_A_B_A"] = stages
                 self.records["checks"]["two_complete_D0_identity_releases"] = {"passed": False, "blocker": "0.5.0 is a real legacy release but lacks native live identity; no shim or relabelled copy substitutes for it"}
 
