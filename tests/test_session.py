@@ -59,6 +59,17 @@ class SessionTest(unittest.TestCase):
             ).strip())
         self.assertEqual(fingerprints[0], fingerprints[1])
 
+    def test_code_fingerprint_distinguishes_compiler_slice_constants(self):
+        def sliced(value):
+            return value[1:8:2]
+
+        code = sliced.__code__
+        first = code.replace(co_consts=(*code.co_consts, slice(1, 8, 2)))
+        same = code.replace(co_consts=(*code.co_consts, slice(1, 8, 2)))
+        changed = code.replace(co_consts=(*code.co_consts, slice(1, 9, 2)))
+        self.assertEqual(session._code_digest(first), session._code_digest(same))
+        self.assertNotEqual(session._code_digest(first), session._code_digest(changed))
+
     def test_disk_and_metadata_changes_do_not_relabel_loaded_code(self):
         metadata = {"state": "observed", "version": __version__, "sha256": "original", "root": "/metadata"}
         with mock.patch.object(session, "distribution_snapshot", side_effect=lambda: dict(metadata)), mock.patch.object(
