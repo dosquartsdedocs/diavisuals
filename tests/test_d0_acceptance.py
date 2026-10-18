@@ -289,7 +289,8 @@ asyncio.run(main())
                 self.assertEqual(stages[0]["svg_sha256"], stages[2]["svg_sha256"])
                 self.assertNotEqual(stages[0]["image_id"], stages[1]["image_id"])
                 self.records["checks"]["actual_version_A_B_A"] = stages
-                self.records["checks"]["two_complete_D0_identity_releases"] = {"passed": False, "blocker": "0.5.0 is a real legacy release but lacks native live identity; no shim or relabelled copy substitutes for it"}
+                self.records["checks"]["two_complete_D0_identity_releases"] = {"passed": False, "scope": "this-legacy-0.5.0-pair",
+                    "blocker": "0.5.0 lacks native live identity; the complete published 0.6.0/0.7.0 pair is qualified separately by tests-d0-published"}
 
             # Atomic replacement avoids modifying uv's hardlinked shared cache.
             if os.environ.get("DIAVISUALS_INSTALLED") != "1":

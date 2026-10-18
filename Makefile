@@ -20,7 +20,7 @@ override INPUT := $(value INPUT)
 override OUTPUT := $(value OUTPUT)
 export PROJECT OUT_DIR COMPAT_PROFILE ENGINE FAMILY FORMAT INPUT OUTPUT
 
-.PHONY: help check lint tests test tests-mcp tests-install mcp-env docker-build-renderer docker-ensure-renderer docker-test mcp-build mcp-init mcp-check mcp-smoke mcp-down mcp-stdio project-check render-diagram render-examples render-gallery render-gallery-local clean
+.PHONY: help check lint tests test tests-mcp tests-install tests-d0-published mcp-env docker-build-renderer docker-ensure-renderer docker-test mcp-build mcp-init mcp-check mcp-smoke mcp-down mcp-stdio project-check render-diagram render-examples render-gallery render-gallery-local clean
 
 help:
 	@printf "Targets:\n"
@@ -29,6 +29,7 @@ help:
 	@printf "  make tests            Run deterministic host tests\n"
 	@printf "  make tests-mcp        Run a real MCP stdio protocol smoke\n"
 	@printf "  make tests-install    Verify wheel and sdist installations\n"
+	@printf "  make tests-d0-published  Verify explicitly prepared published 0.6.0/0.7.0 D0 points\n"
 	@printf "  make mcp-build        Prepare the factory environment and renderer image\n"
 	@printf "  make mcp-init         Initialize the selected PROJECT cache\n"
 	@printf "  make mcp-check        Validate the factory lifecycle\n"
@@ -112,6 +113,9 @@ docker-test: docker-ensure-renderer
 mcp-smoke:
 	@test -x "$(CLI)" || { printf 'Prepare Diavisuals first: make mcp-build\n' >&2; exit 2; }
 	@"$(CLI)" mcp-smoke
+
+tests-d0-published: mcp-env
+	@DIAVISUALS_D0_PUBLISHED=1 $(PYTHON) -m unittest tests.test_d0_published
 
 mcp-down:
 	@$(CLI) --project "$${PROJECT}" down >/dev/null

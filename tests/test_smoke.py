@@ -119,6 +119,22 @@ class SmokeProtocolTest(ProbeEnvironment, unittest.TestCase):
 
 @unittest.skipUnless(os.environ.get("DIAVISUALS_DOCKER_SMOKE") == "1", "set DIAVISUALS_DOCKER_SMOKE=1")
 class SmokeDockerTest(ProbeEnvironment, unittest.TestCase):
+    def test_real_smoke_refuses_missing_or_mismatched_runtime_without_fallback(self):
+        current = registry.renderer_status(runtime=registry.RuntimeSelection())
+        self.assertTrue(current["ok"], current)
+        missing = "sha256:" + "0" * 64
+        for selection in (missing, current["renderer"]["image"]):
+            with self.subTest(selection=selection), tempfile.TemporaryDirectory() as temporary:
+                base = pathlib.Path(temporary)
+                consumer, env = self.environment(base)
+                env.update(DIAVISUALS_RUNTIME_IMAGE=selection, DIAVISUALS_RUNTIME_EXPECTED_ID=missing)
+                result = subprocess.run([str(CLI), "mcp-smoke"], cwd=base, env=env, text=True, capture_output=True, timeout=45)
+                value, commands = self.check_probe(base, consumer, result, ok=False, protocol_only=False)
+                self.assertEqual(set(value["errors"]), {"mermaid", "plantuml"})
+                self.assertFalse(any(command[1] == "run" for command in commands), commands)
+                self.assertTrue(commands)
+                self.assertTrue(all(command[-1] == selection for command in commands if command[1:3] == ["image", "inspect"]), commands)
+
     def test_cli_and_make_share_one_real_offline_current_image_workflow(self):
         current = registry.renderer_status(runtime=registry.RuntimeSelection())
         self.assertTrue(current["ok"], current)

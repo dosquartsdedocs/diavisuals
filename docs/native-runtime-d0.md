@@ -1,6 +1,6 @@
 # Native runtime / live identity — D0
 
-Diavisuals **0.6.0** implements the native Python **stdio** profile against
+Diavisuals has implemented the native Python **stdio** profile since **0.6.0**, against
 [gaContExt D0 at `5634ea2e3e42122bb365992dfca9f248feb89dec`](https://github.com/dosquartsdedocs/gacontext/blob/5634ea2e3e42122bb365992dfca9f248feb89dec/src/bash/mcp_factories/NATIVE_RUNTIME_REQUIREMENTS.md).
 Owner tracking: [Diavisuals #14](https://github.com/dosquartsdedocs/diavisuals/issues/14);
 coordination: [gaContExt #15](https://github.com/dosquartsdedocs/gacontext/issues/15).
@@ -10,8 +10,8 @@ does not introduce a central manifest schema or change coordinator helper pins.
 ## Preparation and launch
 
 Prepare the package with its pinned direct dependencies (`PyYAML==6.0.3`, optional
-`mcp==1.29.0` and that package's declared dependency closure), a supported Python
-environment and a reachable Docker CLI/daemon. Source preparation uses `uv.lock`;
+`mcp==2.3.0` in current releases and that package's declared dependency closure),
+a supported Python environment and a reachable Docker CLI/daemon. Source preparation uses `uv.lock`;
 installed acceptance records the actual prepared package/dependency inventory.
 The wheel includes the CLI/MCP, styles, profiles, tools and teaching/gallery assets.
 Rendering needs the separately verified Docker image; normal use needs no engine
@@ -139,7 +139,7 @@ Docker inspection/removal and diagnostic draining have their additional bounded
 timeouts; 300 seconds is not a total process-shutdown SLA. Bounds are per worker
 and per stdio instance, not a global cap across independent clients.
 
-## Acceptance and remaining gate
+## Acceptance and qualified published points
 
 Acceptance uses synthetic consumers and the real Docker executable, without an
 alias wrapper. It covers tool/resource agreement, same-version reconnect, stable
@@ -150,10 +150,34 @@ cleanup, unknown namespace/foreign refusal and reactivation. The audit guard den
 internet/DNS, implicit preparation and (in installed tests) mutable checkout reads.
 Prepared package/source/metadata and author/foreign-registration bytes are rechecked.
 
-Actual version A/B/A uses the checksum-verified published **0.5.0** wheel and the
-real **0.6.0** distribution, not a renamed copy. 0.5.0 can render/coexist/rollback
-but has no complete live instance/loaded-package identity endpoint. That observation
-is explicitly partial. **Two complete D0 live-identity release points are not yet
-available**; a second real supporting delivery is required before that full gate
-can be claimed. No continuous version interval or coordinator helper upgrade is
-inferred. Hub adapter intake and older coordinator acceptance remain separate.
+The historical 0.5.0 baseline remains explicitly partial: it can render and
+participate in rollback, but has no full live identity endpoint. Those regression
+tests remain separate and do not stand in for the complete two-release gate.
+
+`make tests-d0-published` exercises the actual published **0.6.0 and 0.7.0** wheels
+in independent non-editable environments, with their exact published image IDs.
+The test validates installed bytes against the checksum-pinned wheels before and
+after use. Live tool/resource identities must match those prepared sources and
+metadata. It covers same-version reconnect, A/B/A, useful offline Mermaid/PlantUML
+renders, retained originals/edits, both directions of mixed-version busy detach,
+last-user termination and missing/mismatched runtime refusal. The peer is fully
+closed while the other worker is paused, then the worker is allowed to finish.
+
+Prepare the distributions/images explicitly and supply:
+
+```bash
+DIAVISUALS_D0_06_PYTHON=/absolute/0.6.0-env/bin/python \
+DIAVISUALS_D0_06_WHEEL=/absolute/diavisuals-0.6.0-py3-none-any.whl \
+DIAVISUALS_D0_07_PYTHON=/absolute/0.7.0-env/bin/python \
+DIAVISUALS_D0_07_WHEEL=/absolute/diavisuals-0.7.0-py3-none-any.whl \
+DIAVISUALS_D0_PUBLISHED_EVIDENCE=/absolute/evidence \
+  make tests-d0-published
+```
+
+The published points retain their original MCP SDKs (1.29.0 and 2.3.0), source
+fingerprints and images. They are not the working candidate with a substituted
+version string. CI runs this acceptance on a separate runner that loads the two
+published archives without building/remapping the candidate image. Missing
+preparation fails this explicit gate; normal factory smoke never depends on it.
+No continuous version interval, coordinator pin change or shared-runtime adoption
+is inferred. Hub intake of the returned evidence remains a separate decision.
