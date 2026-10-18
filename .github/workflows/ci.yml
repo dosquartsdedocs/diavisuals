@@ -129,7 +129,6 @@ jobs:
       DIAVISUALS_D0_06_WHEEL: ${{ github.workspace }}/.tmp/d0-assets/06/diavisuals-0.6.0-py3-none-any.whl
       DIAVISUALS_D0_07_PYTHON: ${{ github.workspace }}/.tmp/d0-07/bin/python
       DIAVISUALS_D0_07_WHEEL: ${{ github.workspace }}/.tmp/d0-assets/07/diavisuals-0.7.0-py3-none-any.whl
-      DIAVISUALS_D0_PUBLISHED_EVIDENCE: ${{ runner.temp }}/published-d0-evidence
     steps:
       - uses: actions/checkout@v7.0.1
         with:
@@ -161,6 +160,8 @@ jobs:
           uv pip install --python "$DIAVISUALS_D0_06_PYTHON" "$DIAVISUALS_D0_06_WHEEL[mcp]"
           uv pip install --python "$DIAVISUALS_D0_07_PYTHON" "$DIAVISUALS_D0_07_WHEEL[mcp]"
       - id: published_pair
+        env:
+          DIAVISUALS_D0_PUBLISHED_EVIDENCE: ${{ runner.temp }}/published-d0-evidence
         run: make tests-d0-published
       - name: Summarize the qualified points for reviewers
         if: always()
