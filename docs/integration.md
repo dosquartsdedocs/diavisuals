@@ -18,7 +18,7 @@ while still giving consumers a simple contract: shared style, shared renderer,
 declared compatibility profile.
 
 Consumers should declare `diavisuals` under `mcp_dependencies` in
-`mcp-factory.yml`, pin a reviewed `diavisuals` release tag such as `v0.7.0`, and
+`mcp-factory.yml`, pin a reviewed `diavisuals` release tag such as `v0.7.1`, and
 declare which compatibility profile they render, for example
 `mermaid-12.0.0-plantuml-1.2026.9`.
 
@@ -31,7 +31,7 @@ contract without copying the engines:
 ```yaml
 diavisuals:
   source: external
-  release: v0.7.0
+  release: v0.7.1
   compatibility: mermaid-12.0.0-plantuml-1.2026.9
 diagram_styles:
   family: benizar
@@ -39,7 +39,7 @@ diagram_styles:
 
 Use the exact released wheel/runtime hashes from `release.json`; the tag above is
 an example of a reviewed point, not permission to upgrade an existing consumer's
-pin automatically. The 0.7.1 maintenance candidate retains the same renderer/profile.
+pin automatically. The 0.7.1 maintenance release retains the 0.7.0 renderer/profile.
 
 After explicit package/runtime preparation, the source and installed factory
 smoke run the same small real Mermaid/PlantUML workflow. The synthetic smoke is

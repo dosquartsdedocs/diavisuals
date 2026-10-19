@@ -3,7 +3,13 @@
 Short SemVer tags identify a reviewed controller, style assets, compatibility
 profile and renderer tuple. Engine versions are recorded independently.
 
-## Current release: 0.7.0
+## Current release: 0.7.1
+
+0.7.1 aligns source and installed factory smoke around two small real SVG renders,
+isolated from consumer/job context. It adds explicit acceptance between the actual
+published 0.6.0/0.7.0 D0 identities and keeps historical/W1 regressions in CI.
+The renderer archive, image ID, style family and compatibility profile are reused
+unchanged from 0.7.0; this is a controller maintenance release.
 
 0.7.0 adds [W1 private volume jobs and durable directory retention](w1-job-storage.md)
 and migrates the stdio server to MCP SDK **2.3.0**. It preserves the native
@@ -37,14 +43,14 @@ offline probe verifies their hashes and versions as well as the npm tree.
 
 ## Published artifacts
 
-Use the [GitHub release](https://github.com/dosquartsdedocs/diavisuals/releases/tag/v0.7.0),
+Use the [GitHub release](https://github.com/dosquartsdedocs/diavisuals/releases/tag/v0.7.1),
 not an unqualified PyPI package name. Its immutable `release.json` binds the
 integrated source commit, artifact sizes/hashes, descriptors and tested runtime.
 
 | Asset | Purpose |
 | --- | --- |
-| `diavisuals-0.7.0-py3-none-any.whl` | Installable CLI/MCP with all package assets. |
-| `diavisuals-0.7.0.tar.gz` | Source distribution. |
+| `diavisuals-0.7.1-py3-none-any.whl` | Installable CLI/MCP with all package assets. |
+| `diavisuals-0.7.1.tar.gz` | Source distribution. |
 | `diavisuals-render-v0.7.0-linux-amd64.tar.gz` | Tested renderer Docker archive. |
 | `mcp-factory-package.yml` | Exact installed discovery descriptor. |
 | `mcp-job-storage.json` | Separate W1 provider declaration. |
@@ -58,12 +64,12 @@ Its archive hash is a separate identity, recorded in `release.json`; no registry
 RepoDigest is claimed. Its alias is `diavisuals/render:v0.7.0`.
 
 ```bash
-gh release download v0.7.0 --repo dosquartsdedocs/diavisuals --dir /absolute/release-download
+gh release download v0.7.1 --repo dosquartsdedocs/diavisuals --dir /absolute/release-download
 # From the download directory:
 sha256sum --check SHA256SUMS
 docker image load --input diavisuals-render-v0.7.0-linux-amd64.tar.gz
 docker image inspect diavisuals/render:v0.7.0 --format '{{.Id}}'
-uv tool install './diavisuals-0.7.0-py3-none-any.whl[mcp]'
+uv tool install './diavisuals-0.7.1-py3-none-any.whl[mcp]'
 export DIAVISUALS_RUNTIME_IMAGE=sha256:6eb15796cf394cd53df723e3278800b600dbf526f7d9f79b681ae0858c8f6501
 diavisuals renderer-status
 diavisuals factory-check
@@ -86,8 +92,9 @@ activate a missing memory companion. Do not interrupt another busy client.
    wheel/sdist gates, including W1. Review the regenerated gallery and real PDF
    output, not just successful process exit codes.
 2. Merge the reviewed source through normal PR/CI. Build final wheel/sdist from
-   the clean integrated commit. Keep the tested image ID; export that exact image
-   and record the resulting archive hash. Never replace a published old identity.
+   the clean integrated commit. Keep the tested image ID; reuse its verified
+   published archive when unchanged, or export that exact image and record the
+   resulting archive hash. Never replace a published old identity.
 3. Bind final installed evidence to those exact bytes in `acceptance.json` and
    `release.json`; publish the annotated version tag and checksum-pinned assets.
 4. Require the cold downloaded-wheel/sdist workflow to pass. Return the exact
@@ -102,6 +109,7 @@ tested adapters. The geoprocessing diagram type remains future work.
 
 | Release | Profile / renderer | Main change |
 | --- | --- | --- |
+| `v0.7.0` | `mermaid-12.0.0-plantuml-1.2026.9` / `v0.7.0` | Private W1 jobs, MCP SDK 2 and the audited modern renderer. |
 | `v0.6.0` | `mermaid-11.16.0-plantuml-1.2026.1` / `v0.3.0` | Live D0 identity, busy/drain observation and exact orphan recovery. |
 | `v0.5.0` | Same retained renderer | Native runtime selection, provenance and freshness. |
 | `v0.4.0` | Same retained renderer | Opt-in retained leaf diagram bundles. |
