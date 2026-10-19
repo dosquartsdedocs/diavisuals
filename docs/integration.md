@@ -18,9 +18,9 @@ while still giving consumers a simple contract: shared style, shared renderer,
 declared compatibility profile.
 
 Consumers should declare `diavisuals` under `mcp_dependencies` in
-`mcp-factory.yml`, pin a short `diavisuals` release tag such as `v0.3.0`, and
+`mcp-factory.yml`, pin a reviewed `diavisuals` release tag such as `v0.7.1`, and
 declare which compatibility profile they render, for example
-`mermaid-11.16.0-plantuml-1.2026.1`.
+`mermaid-12.0.0-plantuml-1.2026.9`.
 
 ## Recommended Installation
 
@@ -31,11 +31,25 @@ contract without copying the engines:
 ```yaml
 diavisuals:
   source: external
-  release: v0.3.0
-  compatibility: mermaid-11.16.0-plantuml-1.2026.1
+  release: v0.7.1
+  compatibility: mermaid-12.0.0-plantuml-1.2026.9
 diagram_styles:
   family: benizar
 ```
+
+Use the exact released wheel/runtime hashes from `release.json`; the tag above is
+an example of a reviewed point, not permission to upgrade an existing consumer's
+pin automatically. The 0.7.1 maintenance release retains the 0.7.0 renderer/profile.
+
+After explicit package/runtime preparation, the source and installed factory
+smoke run the same small real Mermaid/PlantUML workflow. The synthetic smoke is
+independent of the consumer and its W1 job grant. Historical and W1 acceptance
+fixtures are CI concerns. `mcp-smoke --protocol-only` is only a partial diagnostic.
+
+For generic lifecycle/storage changes, follow gaContExt #30/#31: consume the
+versioned common SDK and canonical managed controls when the required APIs and
+distribution are available. The current private W1 adapter is a migration input;
+do not copy or recreate missing common fencing/retention policy in a consumer.
 
 Compatibility copies or submodules are still possible for older workspaces that
 expect local assets, but new consumers should declare the MCP dependency:

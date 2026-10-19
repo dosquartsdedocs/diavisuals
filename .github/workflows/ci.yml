@@ -109,8 +109,8 @@ jobs:
             .tmp/npm-audit.json
             .tmp/renderer-proof.json
       - run: make docker-test
-      - name: Prove W1 from both non-editable distributions
-        run: DIAVISUALS_W1_DOCKER=1 DIAVISUALS_W1_EVIDENCE="$RUNNER_TEMP/w1-evidence" make tests-install
+      - name: Prove runtime smoke and W1 from both non-editable distributions
+        run: DIAVISUALS_DOCKER_SMOKE=1 DIAVISUALS_W1_DOCKER=1 DIAVISUALS_W1_EVIDENCE="$RUNNER_TEMP/w1-evidence" make tests-install
       - uses: actions/upload-artifact@v7.0.2
         if: always()
         with:
@@ -120,3 +120,63 @@ jobs:
       - run: make render-gallery
       - run: git diff --exit-code -- docs/gallery
       - run: test -z "$(git status --porcelain --untracked-files=all -- docs/gallery)"
+
+  published-d0:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      DIAVISUALS_D0_06_PYTHON: ${{ github.workspace }}/.tmp/d0-06/bin/python
+      DIAVISUALS_D0_06_WHEEL: ${{ github.workspace }}/.tmp/d0-assets/06/diavisuals-0.6.0-py3-none-any.whl
+      DIAVISUALS_D0_07_PYTHON: ${{ github.workspace }}/.tmp/d0-07/bin/python
+      DIAVISUALS_D0_07_WHEEL: ${{ github.workspace }}/.tmp/d0-assets/07/diavisuals-0.7.0-py3-none-any.whl
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@v10.3.0
+        with:
+          version: 0.13.1
+          python-version: '3.12'
+          enable-cache: true
+      - run: uv sync --locked --extra dev --extra mcp
+      - name: Prepare the two immutable published points on this isolated runner
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release download v0.6.0 --repo "$GITHUB_REPOSITORY" --dir .tmp/d0-assets/06 \
+            --pattern diavisuals-0.6.0-py3-none-any.whl --pattern diavisuals-render-v0.3.0-linux-amd64.tar.gz
+          gh release download v0.7.0 --repo "$GITHUB_REPOSITORY" --dir .tmp/d0-assets/07 \
+            --pattern diavisuals-0.7.0-py3-none-any.whl --pattern diavisuals-render-v0.7.0-linux-amd64.tar.gz
+          printf '%s  %s\n' d7cc225340c65879e4a9e831d52b8fd13d7da5b7696d7430a88f16ca88035fb6 "$DIAVISUALS_D0_06_WHEEL" | sha256sum --check
+          printf '%s  %s\n' 8534e9f7584242458919b6d3ba1ff0e2d2f7910259939a841854e0892c62c705 "$DIAVISUALS_D0_07_WHEEL" | sha256sum --check
+          printf '%s  %s\n' de5d98d6bcff2f427e2ce83db6e7a14edaf6963d199483cb68674ab43d3d75e4 .tmp/d0-assets/06/diavisuals-render-v0.3.0-linux-amd64.tar.gz | sha256sum --check
+          printf '%s  %s\n' 399e46a56865d7019cd1c8d91edba97c9cb1faeb26b5b84b8050796fec44fa3f .tmp/d0-assets/07/diavisuals-render-v0.7.0-linux-amd64.tar.gz | sha256sum --check
+          # There is no candidate renderer build in this job and no alias remap.
+          docker image load --input .tmp/d0-assets/06/diavisuals-render-v0.3.0-linux-amd64.tar.gz
+          docker image load --input .tmp/d0-assets/07/diavisuals-render-v0.7.0-linux-amd64.tar.gz
+          uv venv --python 3.12 .tmp/d0-06
+          uv venv --python 3.12 .tmp/d0-07
+          uv pip install --python "$DIAVISUALS_D0_06_PYTHON" "$DIAVISUALS_D0_06_WHEEL[mcp]"
+          uv pip install --python "$DIAVISUALS_D0_07_PYTHON" "$DIAVISUALS_D0_07_WHEEL[mcp]"
+      - id: published_pair
+        env:
+          DIAVISUALS_D0_PUBLISHED_EVIDENCE: ${{ runner.temp }}/published-d0-evidence
+        run: make tests-d0-published
+      - name: Summarize the qualified points for reviewers
+        if: always()
+        run: |
+          {
+            printf '## Published D0 compatibility\n\n'
+            printf 'Gate result: **%s**\n\n' '${{ steps.published_pair.outcome }}'
+            printf '| Point | Renderer |\n| --- | --- |\n'
+            printf '| Published 0.6.0 | Immutable v0.3.0 image |\n'
+            printf '| Published 0.7.0 | Immutable v0.7.0 image |\n\n'
+            printf 'The gate checks live identity, reconnect, A/B/A, mixed-version busy release, author-data preservation and explicit-runtime refusal.\n\n'
+            printf 'Detailed observations: **published-d0-pair** artifact. This is an explicit acceptance gate, separate from the minimal factory smoke; it does not infer a version range or shared-runtime adoption.\n'
+          } >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v7.0.2
+        if: always()
+        with:
+          name: published-d0-pair
+          path: ${{ runner.temp }}/published-d0-evidence

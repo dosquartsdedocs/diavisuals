@@ -8,6 +8,7 @@ import pathlib
 import shutil
 import subprocess
 import sys
+import tempfile
 from typing import Any
 
 from . import __version__
@@ -49,6 +50,7 @@ from .registry import (
     style_inventory,
     submodule_plan,
     update_factory,
+    validate_rendered_artifact,
     vscode_client_config,
 )
 from .runtime import runtime_selection
@@ -76,7 +78,9 @@ def _tool_result_ok(result: Any) -> bool:
     for candidate in candidates:
         if not isinstance(candidate, dict):
             continue
-        payload = candidate.get("result", candidate)
+        # Native render payloads already have an `ok` plus a subprocess `result`.
+        # Only unwrap SDK result envelopes when the outer payload has no status.
+        payload = candidate if "ok" in candidate else candidate.get("result", candidate)
         if isinstance(payload, dict) and "ok" in payload:
             return payload["ok"] is True
     return False
@@ -177,7 +181,7 @@ def cmd_project_check(args: argparse.Namespace) -> int:
 
 
 def cmd_mcp_smoke(args: argparse.Namespace) -> int:
-    async def smoke() -> dict[str, Any]:
+    async def smoke(probe_root: pathlib.Path) -> dict[str, Any]:
         from mcp import ClientSession, StdioServerParameters
         from mcp.client.stdio import stdio_client
 
@@ -187,7 +191,8 @@ def cmd_mcp_smoke(args: argparse.Namespace) -> int:
             args=arguments,
             env={**{key: value for key, value in os.environ.items() if key not in {
                 "DIAVISUALS_RUNTIME_IMAGE", "DIAVISUALS_RUNTIME_EXPECTED_ID",
-            }}, **args.runtime.environment(), "MCP_CONSUMER_WORKSPACE": str(pathlib.Path(args.project).expanduser().resolve())},
+                "DIAVISUALS_JOB_STORAGE_GRANT", "MCP_JOB_STORAGE_BINDING",
+            }}, **args.runtime.environment(), "MCP_CONSUMER_WORKSPACE": str(probe_root)},
         )
         async with stdio_client(parameters) as (read, write):
             async with ClientSession(read, write) as session:
@@ -195,20 +200,31 @@ def cmd_mcp_smoke(args: argparse.Namespace) -> int:
                 resources = await session.list_resources()
                 tools = await session.list_tools()
                 inventory = await session.call_tool("style_inventory", {})
-                rendered = await session.call_tool(
-                    "render_diagram_text",
-                    {
-                        "diagram_text": "flowchart TD\n  A --> B\n",
-                        "include_data": False,
-                        "dry_run": True,
-                    },
-                )
+                renders = {}
+                errors = {}
+                for engine, source in (
+                    ("mermaid", "flowchart LR\n  A[Factory] --> B[Ready]\n"),
+                    ("plantuml", "@startuml\nFactory -> Renderer : Ready\n@enduml\n"),
+                ):
+                    output = f"smoke-{engine}.svg"
+                    rendered = await session.call_tool("render_diagram_text", {
+                        "diagram_text": source, "engine": engine, "output_format": "svg", "output_path": output,
+                        "include_data": False, "dry_run": args.protocol_only,
+                    })
+                    renders[engine] = _tool_result_ok(rendered)
+                    if renders[engine] and not args.protocol_only:
+                        checked = validate_rendered_artifact(probe_root / output, "svg")
+                        renders[engine] = checked["ok"]
+                        if not checked["ok"]:
+                            errors[engine] = checked.get("reason", "rendered SVG validation failed")
+                    if not renders[engine] and engine not in errors:
+                        errors[engine] = "\n".join(getattr(item, "text", "") for item in rendered.content)[:1024]
                 resource_uris = [str(resource.uri) for resource in resources.resources]
                 tool_names = [tool.name for tool in tools.tools]
                 missing_resources = sorted(set(MCP_RESOURCE_URIS) - set(resource_uris))
                 missing_tools = sorted(set(MCP_TOOL_NAMES) - set(tool_names))
                 inventory_ok = _tool_result_ok(inventory)
-                render_ok = _tool_result_ok(rendered)
+                render_ok = all(renders.values())
                 ok = inventory_ok and render_ok and not missing_resources and not missing_tools
                 return {
                     "ok": ok,
@@ -218,9 +234,17 @@ def cmd_mcp_smoke(args: argparse.Namespace) -> int:
                     "missing_tools": missing_tools,
                     "inventory_ok": inventory_ok,
                     "render_ok": render_ok,
+                    "scope": "factory-synthetic-workflow",
+                    "protocol_only": args.protocol_only,
+                    "runtime_verified": render_ok and not args.protocol_only,
+                    "renders": renders,
+                    "errors": errors,
                 }
 
-    payload = asyncio.run(smoke())
+    # A factory health probe never joins the caller's task or inspects their
+    # consumer. The native renderer supplies the existing offline/cleanup rules.
+    with tempfile.TemporaryDirectory(prefix="diavisuals-smoke-") as directory:
+        payload = asyncio.run(smoke(pathlib.Path(directory)))
     print_payload(payload)
     return 0 if payload.get("ok") else 1
 
@@ -509,7 +533,8 @@ def build_parser() -> argparse.ArgumentParser:
     )
     project_check_parser.set_defaults(func=cmd_project_check)
 
-    smoke_parser = subcommands.add_parser("mcp-smoke", help="Run a real MCP stdio protocol smoke test")
+    smoke_parser = subcommands.add_parser("mcp-smoke", help="Run one real synthetic Mermaid/PlantUML workflow through MCP; requires explicit preparation")
+    smoke_parser.add_argument("--protocol-only", action="store_true", help="Partial diagnostic: discovery and render planning only, without verifying Docker rendering")
     smoke_parser.set_defaults(func=cmd_mcp_smoke)
 
     renderer_parser = subcommands.add_parser("build-renderer", help="Build the Docker renderer image for Mermaid and PlantUML")

@@ -2,7 +2,7 @@ schema_version: 1
 name: diavisuals
 kind: codex-mcp-factory
 install_scope: user
-version: 0.7.0
+version: 0.7.1
 description: Workspace-confined diagram styles and hardened Docker rendering for Mermaid and PlantUML.
 repository: https://github.com/dosquartsdedocs/diavisuals
 workspace_rule:
@@ -71,7 +71,7 @@ discovery:
   suggested_scan_roots: [~/git]
   checkout_required_for_make_lifecycle: true
 release:
-  default: v0.7.0
+  default: v0.7.1
   compatibility: mermaid-12.0.0-plantuml-1.2026.9
   family: benizar
 contracts:

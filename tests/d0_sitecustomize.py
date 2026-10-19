@@ -64,6 +64,9 @@ def audit(event, args):
             record("denied-preparation", command)
             raise PermissionError("normal installed launch/work cannot install or prepare dependencies")
         if Path(command[0]).name == "docker":
+            if any(value in command for value in configuration.get("forbidden_image_refs", [])):
+                record("denied-historical-image", command)
+                raise PermissionError("this acceptance probe must not depend on historical images")
             if command[1] in {"build", "pull", "load", "tag", "rmi", "system"} or command[1:3] in (["image", "pull"], ["image", "load"], ["image", "tag"], ["image", "rm"]):
                 raise PermissionError("normal launch/work must not prepare or mutate images")
             if command[1] == "run" and ("--pull=never" not in command or command[command.index("--network") + 1] != "none"):

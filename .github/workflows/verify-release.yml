@@ -8,7 +8,7 @@ on:
       tag:
         description: Published release tag
         required: true
-        default: v0.7.0
+        default: v0.7.1
         type: string
 
 permissions:
@@ -106,7 +106,7 @@ jobs:
           DIAVISUALS_INSTALLED: '1'
           DIAVISUALS_DOCKER_SMOKE: '1'
           DIAVISUALS_MCP_SMOKE: '1'
-        run: .tmp/release-venv/bin/python -m unittest tests.test_artifacts tests.test_artifacts_runtime tests.test_runtime_selection tests.test_runtime_selection_docker tests.test_session tests.test_session_mcp
+        run: .tmp/release-venv/bin/python -m unittest tests.test_artifacts tests.test_artifacts_runtime tests.test_runtime_selection tests.test_runtime_selection_docker tests.test_session tests.test_session_mcp tests.test_smoke
       - name: Prepare the real 0.5.0 rollback point
         run: |
           gh release download v0.5.0 --repo "$GITHUB_REPOSITORY" \

@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.7.1 - 2026-10-19
+
+- Align checkout and installed factory smoke with gaContExt's real-workflow rule: two small SVG renders on the prepared selected runtime, isolated from consumer/job context.
+- Keep historical and W1 regressions in explicit acceptance targets; provide a clearly partial `--protocol-only` diagnostic for fast tests without Docker.
+- Preserve common manifest/storage wires, renderer/profile identities and previous published artifacts while following the shared-runtime convergence boundary.
+- Add an explicit two-published-point D0 gate for unmodified 0.6.0/0.7.0, with live identity, reconnect/rollback, mixed-version busy release and preparation/author-data preservation.
+- Refresh generic consumer-integration examples and explain the shared SDK/scaffold boundary without changing consumer pins.
+
 ## 0.7.0 - 2026-10-18
 
 - Add the explicit `diavisuals-private-directory-v1` W1 profile and installed `mcp-job-storage.json`, preserving consumer/Git policies and earlier artifact schemas.

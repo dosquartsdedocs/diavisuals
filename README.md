@@ -1,6 +1,6 @@
 # diavisuals
 
-![release](https://img.shields.io/badge/release-v0.7.0-2a5db0) ![Mermaid CLI](https://img.shields.io/badge/Mermaid_CLI-12.0.0-ff3670) ![PlantUML](https://img.shields.io/badge/PlantUML-1.2026.9-2a5db0) ![family](https://img.shields.io/badge/family-benizar-2a5db0)
+![release](https://img.shields.io/badge/release-v0.7.1-2a5db0) ![Mermaid CLI](https://img.shields.io/badge/Mermaid_CLI-12.0.0-ff3670) ![PlantUML](https://img.shields.io/badge/PlantUML-1.2026.9-2a5db0) ![family](https://img.shields.io/badge/family-benizar-2a5db0)
 
 `diavisuals` centralizes shared Mermaid and PlantUML visual styles and the
 Docker renderer used by dosquartsdedocs projects. The goal is to stop copying
@@ -40,18 +40,23 @@ That split matters because a quadrant chart, a sequence diagram, and a treemap n
 Install the package and MCP dependencies with `uv`:
 
 ```bash
-uv tool install 'diavisuals[mcp] @ https://github.com/dosquartsdedocs/diavisuals/releases/download/v0.7.0/diavisuals-0.7.0-py3-none-any.whl'
+uv tool install 'diavisuals[mcp] @ https://github.com/dosquartsdedocs/diavisuals/releases/download/v0.7.1/diavisuals-0.7.1-py3-none-any.whl'
 ```
 
 For released-producer acceptance, first load the checksum-verified renderer
 archive from the same GitHub release. See [release installation and pins](docs/releases.md#published-artifacts).
-The v0.7.0 renderer has its own immutable image ID and compatibility profile;
-published older runtimes remain separately available. A source checkout can
+0.7.1 reuses the published v0.7.0 renderer, immutable image ID and compatibility
+profile. Published older runtimes remain separately available. A source checkout can
 prepare the shared renderer with:
 
 ```bash
 make mcp-build
 ```
+
+After preparation, `make mcp-smoke` or installed `diavisuals mcp-smoke` runs the
+same small real Mermaid/PlantUML workflow in an isolated temporary workspace.
+Historical-version acceptance is a separate CI target; `--protocol-only` is an
+explicitly partial diagnostic that does not verify rendering.
 
 To select an already prepared immutable runtime independently of profile bytes,
 use `--runtime-image` / `--runtime-expected-id` or `DIAVISUALS_RUNTIME_*`.
